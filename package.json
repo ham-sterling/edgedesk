@@ -1,0 +1,15 @@
+{
+  "name": "edgedesk",
+  "version": "3.27.0",
+  "private": true,
+  "type": "module",
+  "description": "EdgeDesk trading journal — Cloudflare Workers + D1 edition",
+  "scripts": {
+    "build": "node build.mjs --cloud && node build.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.45.0"
+  }
+}
