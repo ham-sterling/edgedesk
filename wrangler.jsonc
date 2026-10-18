@@ -15,7 +15,7 @@
       "binding": "DB",
       "database_name": "edgedesk",
       // ⬇ paste the Database ID from Cloudflare → Storage & Databases → D1 → edgedesk
-      "database_id": "PASTE-YOUR-D1-DATABASE-ID-HERE"
+      "database_id": "80f4e438-5ee1-4790-9b91-a8e3cec8942e"
     }
   ],
   "observability": { "enabled": true }
