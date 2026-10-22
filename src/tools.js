@@ -21,10 +21,16 @@ function refreshForm(el) {
 
 /* ---------------- Position size ---------------- */
 function calcFormHTML(prefill = {}) {
-  const accId = calcAccount(prefill);
-  return `<form id="calc-form" onsubmit="return false"><div class="calc-split"><div class="calc-in"><div class="formgrid c2">${field('accountId', L('บัญชี', 'Account'), accId, 'select', { html: entityOptions('accounts', accId) })}${instrumentPicker('instrumentId', prefill.instrumentId || lastUsed('instrumentId') || 'ins_XAUUSD')}<div class="calc-acct field span4" id="calc-acct"></div><div class="field"><label for="f_riskPct">${L('ความเสี่ยงต่อไม้', 'Risk per trade')}</label><div class="risk-in"><input id="f_riskPct" name="riskPct" type="number" step="any" inputmode="decimal" value="${esc(prefill.riskPct ?? (state.settings.preferredRisk || 1))}"><select name="riskMode" aria-label="${L('หน่วยความเสี่ยง', 'Risk unit')}">${opt('pct', '%', prefill.riskMode || 'pct')}${opt('amt', get('accounts', accId)?.currency || L('เงิน', 'Money'), prefill.riskMode || 'pct')}</select></div></div>${field('balanceOverride', L('ทุนที่ใช้คำนวณ (เว้นว่าง = ยอดบัญชี)', 'Capital to use (blank = account balance)'), prefill.balanceOverride ?? '', 'number')}
-      ${field('entryPrice', L('ราคาเข้า', 'Entry price'), prefill.entryPrice ?? '', 'number')}${field('stopLoss', 'S/L', prefill.stopLoss ?? '', 'number')}${field('takeProfit', L('T/P (ไม่บังคับ)', 'T/P (optional)'), prefill.takeProfit ?? '', 'number')}
-      ${field('cost', L('ต้นทุนต่อรอบ (หน่วยราคา)', 'Round-trip cost (price units)'), prefill.cost ?? '', 'number', { help: L('สเปรด + ค่าคอม เช่น ทอง 0.32 · EURUSD 0.00015', 'Spread + commission, e.g. gold 0.32 · EURUSD 0.00015') })}${fxField(prefill.fxRate)}</div></div>
+  const accId = calcAccount(prefill), cur = get('accounts', accId)?.currency || L('เงิน', 'Money');
+  const risk = `<div class="field calc-m1"><label for="f_riskPct">${L('ความเสี่ยง', 'Risk')}</label><div class="risk-in"><input id="f_riskPct" name="riskPct" type="number" step="any" inputmode="decimal" value="${esc(prefill.riskPct ?? (state.settings.preferredRisk || 1))}"><select name="riskMode" aria-label="${L('หน่วยความเสี่ยง', 'Risk unit')}">${opt('pct', '%', prefill.riskMode || 'pct')}${opt('amt', cur, prefill.riskMode || 'pct')}</select></div></div>`;
+  return `<form id="calc-form" onsubmit="return false"><div class="calc-split"><div class="calc-in"><div class="formgrid c3">
+      <div class="field span4 calc-ins">${instrumentPicker('instrumentId', prefill.instrumentId || lastUsed('instrumentId') || 'ins_XAUUSD').replace(/^<div class="field">|<\/div>$/g, '')}</div>
+      ${field('entryPrice', L('ราคาเข้า', 'Entry price'), prefill.entryPrice ?? '', 'number', { attrs: 'autofocus' })}${field('stopLoss', 'S/L', prefill.stopLoss ?? '', 'number')}${field('takeProfit', L('T/P (ไม่บังคับ)', 'T/P (optional)'), prefill.takeProfit ?? '', 'number')}
+      <div class="calc-sep span4"></div>
+      ${field('accountId', L('บัญชี', 'Account'), accId, 'select', { html: entityOptions('accounts', accId), span: 4 })}
+      ${field('balanceOverride', L('ทุน', 'Capital'), prefill.balanceOverride ?? '', 'number', { placeholder: L('ยอดบัญชี', 'Account balance'), cls: 'calc-m1' })}${field('cost', L('ต้นทุนต่อรอบ (หน่วยราคา)', 'Round-trip cost (price units)'), prefill.cost ?? '', 'number', { help: `<span id="calc-cost-help">${L('สเปรด + ค่าคอม', 'Spread + commission')}</span>`, cls: 'calc-m1' })}${risk}
+      <div class="span4 calc-fx">${fxField(prefill.fxRate)}</div>
+      <div class="calc-acct field span4" id="calc-acct"></div></div></div>
       <div class="calc-out" id="calc-out"></div></div></form>`;
 }
 function sizeCalculator(prefill = {}) {
@@ -43,7 +49,17 @@ function calcInput() {
   const side = entry != null && sl != null ? (sl < entry ? 'Buy' : 'Sell') : tp != null && entry != null && tp < entry ? 'Sell' : 'Buy';
   const needFx = syncFx(f, d.accountId, d.instrumentId);
   ui.calcPrefill = { accountId: d.accountId, instrumentId: d.instrumentId, riskPct: d.riskPct, riskMode: d.riskMode, entryPrice: d.entryPrice, stopLoss: d.stopLoss, takeProfit: d.takeProfit, cost: d.cost, balanceOverride: d.balanceOverride, fxRate: d.fxRate };
-  return { accountId: d.accountId, instrumentId: d.instrumentId, entryPrice: entry, stopLoss: sl, takeProfit: tp, riskPct: num(d.riskPct), riskMode: d.riskMode === 'amt' ? 'amt' : 'pct', side, fxRate: needFx ? num(d.fxRate) : 1, needFx, cost: Math.max(0, num(d.cost) || 0), balanceOverride: num(d.balanceOverride) };
+  const fxRate = needFx ? num(d.fxRate) : 1, auto = autoCost(d.accountId, d.instrumentId, fxRate), manual = num(d.cost);
+  return { accountId: d.accountId, instrumentId: d.instrumentId, entryPrice: entry, stopLoss: sl, takeProfit: tp, riskPct: num(d.riskPct), riskMode: d.riskMode === 'amt' ? 'amt' : 'pct', side, fxRate, needFx, cost: Math.max(0, manual != null ? manual : auto.total || 0), costAuto: manual == null, auto, balanceOverride: num(d.balanceOverride) };
+}
+/* price-unit amount with up to decimals+2 places, trailing zeros trimmed */
+const pxFmt = (v, dec = 2) => finite(v) ? String(+(+v).toFixed(Math.min(10, dec + 2))) : '—';
+/* round-trip cost from the instrument: spread + commission per lot (set value, else this account's average) in price units */
+function autoCost(accountId, instrumentId, fxRate) {
+  const ins = get('instruments', instrumentId), spread = ins?.spread > 0 ? ins.spread : 0, tr = tickRate({ accountId, instrumentId, fxRate });
+  const ac = ins?.commissionPerLot > 0 ? null : avgCommission(accountId, instrumentId, fxRate), perLot = ins?.commissionPerLot > 0 ? ins.commissionPerLot : ac?.perLot || 0;
+  const comm = perLot && tr ? perLot / tr : 0;
+  return { spread, comm, perLot, avg: !!ac, total: spread + comm, ok: spread > 0 || comm > 0 };
 }
 /* average commission per lot on this account + instrument (closed trades), converted to price units */
 function avgCommission(accountId, instrumentId, fxRate) {
@@ -55,13 +71,13 @@ function avgCommission(accountId, instrumentId, fxRate) {
 function calcAcctHTML(p, c) {
   const acc = get('accounts', p.accountId); if (!acc) return '';
   const cur = acc.currency || '', ins = get('instruments', p.instrumentId), dec = ins?.decimals ?? 2, ac = avgCommission(p.accountId, p.instrumentId, p.fxRate), ov = p.balanceOverride > 0;
-  const capital = `<div class="ca-row"><span class="ca-k">${L('ทุนที่ใช้คำนวณ', 'Capital used')}</span><strong>${money(c.bal, cur)}</strong><span class="badge">${esc(cur)}</span><small class="dim">${ov ? L('ค่าที่กำหนดเอง', 'Custom value') : L('ยอดบัญชีปัจจุบัน · ทุนเริ่มต้น + กำไร/ขาดทุนที่ปิดแล้ว + ฝาก/ถอน', 'Current balance · starting capital + closed P&L + deposits / withdrawals')}</small></div>`;
+  const capital = `<div class="ca-row"><span class="ca-k">${L('ทุน', 'Capital')}</span><strong>${money(c.bal, cur)}</strong><span class="badge">${esc(cur)}</span><small class="dim">${ov ? L('ค่าที่กำหนดเอง', 'Custom value') : L('ยอดบัญชีปัจจุบัน · ทุนเริ่มต้น + กำไร/ขาดทุนที่ปิดแล้ว + ฝาก/ถอน', 'Current balance · starting capital + closed P&L + deposits / withdrawals')}</small></div>`;
   const risk = `<div class="ca-row"><span class="ca-k">${L('งบความเสี่ยง', 'Risk budget')}</span><strong>${money(c.budget, cur)}</strong><small class="dim">${c.bal > 0 ? fmt(c.budget / c.bal * 100, 2) + '% ' + L('ของทุน', 'of capital') : ''}</small></div>`;
-  const rateCfg = ins?.commissionPerLot > 0 ? ins.commissionPerLot : null, tr = tickRate({ accountId: p.accountId, instrumentId: p.instrumentId, fxRate: p.fxRate }), cfgPx = rateCfg && tr ? rateCfg / tr : null;
-  if (rateCfg) return capital + risk + `<div class="ca-row"><span class="ca-k">${L('ค่าคอมที่ตั้งไว้', 'Set commission')}</span><strong>${money(rateCfg, cur)} / ${L('สัญญา', 'lot')}</strong>${finite(cfgPx) ? `<small class="dim">≈ ${fmt(cfgPx, dec + 2)} ${L('หน่วยราคา', 'price units')}${ac ? ` · ${L('เฉลี่ยจริง', 'actual avg')} ${money(ac.perLot, cur)}` : ''}</small>${btn(L('ใช้ค่านี้', 'Use'), 'calc-use-cost', { 'data-value': String(+cfgPx.toFixed(dec + 2)) }, 'sm ghost')}` : ''}</div>`;
-  const comm = ac ? `<div class="ca-row"><span class="ca-k">${L('ค่าคอมเฉลี่ย', 'Avg commission')}</span><strong>${money(ac.perLot, cur)} / ${L('สัญญา', 'lot')}</strong>${finite(ac.price) ? `<small class="dim">≈ ${fmt(ac.price, dec + 2)} ${L('หน่วยราคา', 'price units')} · ${ac.n} ${L('เทรด', 'trades')} ${esc(ins?.symbol || '')}</small>${btn(L('ใช้ค่านี้', 'Use'), 'calc-use-cost', { 'data-value': String(+ac.price.toFixed(dec + 2)) }, 'sm ghost')}` : `<small class="dim">${ac.n} ${L('เทรด', 'trades')}</small>`}</div>`
-    : `<div class="ca-row"><span class="ca-k">${L('ค่าคอมเฉลี่ย', 'Avg commission')}</span><small class="dim">${L(`ยังไม่มีประวัติค่าคอมของ ${esc(ins?.symbol || 'สินทรัพย์นี้')} ในบัญชีนี้`, `No commission history for ${esc(ins?.symbol || 'this instrument')} on this account yet`)}</small></div>`;
-  return capital + risk + comm;
+  const au = p.auto || autoCost(p.accountId, p.instrumentId, p.fxRate), pu = L('หน่วยราคา', 'price units'), px = v => pxFmt(v, dec);
+  const spread = `<div class="ca-row"><span class="ca-k">${L('สเปรด', 'Spread')}</span>${au.spread > 0 ? `<strong>${px(au.spread)}</strong><small class="dim">${pu}</small>` : `<small class="dim">${L('ยังไม่ได้ตั้ง — ตั้งได้ที่ ตั้งค่า → สินทรัพย์', 'Not set — add it in Settings → Instruments')}</small>`}${btn(icon('edit'), 'edit-instrument', { 'data-id': p.instrumentId, 'data-tip': L('แก้ไขสินทรัพย์', 'Edit instrument') }, 'sm ghost icon-only ca-edit')}</div>`;
+  const comm = au.perLot > 0 ? `<div class="ca-row"><span class="ca-k">${au.avg ? L('ค่าคอมเฉลี่ย', 'Average commission') : L('ค่าคอม', 'Commission')}</span><strong>${money(au.perLot, cur)} / ${L('สัญญา', 'lot')}</strong><small class="dim">${au.comm > 0 ? `≈ ${px(au.comm)} ${pu}` : ''}${au.avg && ac ? ` · ${L('เฉลี่ยจาก', 'from')} ${ac.n} ${L('เทรด', 'trades')}` : ''}</small></div>`
+    : `<div class="ca-row"><span class="ca-k">${L('ค่าคอม', 'Commission')}</span><small class="dim">${L('ยังไม่ได้ตั้ง และยังไม่มีประวัติในบัญชีนี้', 'Not set and no history on this account yet')}</small></div>`;
+  return capital + risk + spread + comm;
 }
 /* TradingView-style long / short position preview: profit zone, loss zone, entry line, R ticks */
 function calcLadderHTML(p, c, cur, dec) {
@@ -101,8 +117,12 @@ function updateCalc() {
   if (finite(c.qty) && insP?.minQuantity && c.qty < insP.minQuantity - EPS) warn.push(L(`จำนวนต่ำกว่าขั้นต่ำของสินทรัพย์ (${insP.minQuantity})`, `Quantity is below the instrument minimum (${insP.minQuantity})`));
   { const o = $('#calc-form [name=riskMode]')?.options[1]; if (o && cur) o.textContent = cur; }
   { const box = $('#calc-acct'), h = calcAcctHTML(p, c); if (box.dataset.h !== h) { box.innerHTML = h; box.dataset.h = h; } }
-  const stats = `<div class="live"><div class="hero"><label>${L('จำนวน', 'Quantity')}</label><strong class="accent">${finite(c.qty) ? fmt(c.qty, 2) : '—'}</strong><small class="sub2">${p.entryPrice != null && p.stopLoss != null ? sideBadge(p.side) : ''}</small></div><div><label>${L('ขาดทุนถ้าถึง S/L', 'Loss at S/L')}</label><strong class="neg">${money(finite(c.risk) ? -c.risk : null, cur)}</strong></div><div><label>${L('กำไรถ้าถึง T/P', 'Profit at T/P')}</label><strong class="pos">${money(tpOk ? c.reward : null, cur, true)}</strong></div><div><label>R:R</label><strong>${tpOk && finite(c.rr) ? '1 : ' + fmt(c.rr, 2) : '—'}</strong></div><div><label>${L('R สุทธิหลังต้นทุน', 'Net R after costs')}</label><strong class="${finite(netR) && minRR && netR < minRR ? 'warn' : ''}">${finite(netR) ? '1 : ' + fmt(netR, 2) : '—'}</strong></div><div><label>${L('Win rate คุ้มทุน', 'Break-even win rate')}</label><strong>${finite(be) ? fmt(be, 1) + '%' : '—'}</strong></div><div><label>${L('ระยะ S/L', 'S/L distance')}</label><strong>${finite(c.stopPips) ? fmt(c.stopPips, 1) + ' pips' : '—'}</strong></div></div>`;
-  $('#calc-out').innerHTML = `<div class="calc-res"><div>${stats}${warn.length ? `<div class="notice warn mt8">${icon('alert')}<span>${warn.map(esc).join('<br>')}</span></div>` : ''}<p class="help mt8">${L('ปัดจำนวนลงตาม step ของสินทรัพย์ เพื่อไม่ให้เสี่ยงเกินงบ · R สุทธิ = (ระยะ T/P − ต้นทุน) ÷ (ระยะ S/L + ต้นทุน)', 'Rounded down to the volume step so risk never exceeds budget · Net R = (T/P distance − cost) ÷ (S/L distance + cost)')}</p></div><div class="calc-lad">${calcLadderHTML(p, c, cur, dec)}</div></div>`;
+  { const ch = $('#calc-cost-help'), au = p.auto, f = $('#f_cost'); if (f) f.placeholder = au.ok ? L('อัตโนมัติ ', 'Auto ') + pxFmt(au.total, dec) : L('เช่น 0.32', 'e.g. 0.32');
+    if (ch) ch.textContent = !p.costAuto ? L('กำหนดเอง · ลบค่าเพื่อใช้ค่าอัตโนมัติ', 'Custom · clear to use the automatic value') : au.ok ? L(`อัตโนมัติ = สเปรด ${pxFmt(au.spread, dec)} + ค่าคอม ${pxFmt(au.comm, dec)}`, `Auto = spread ${pxFmt(au.spread, dec)} + commission ${pxFmt(au.comm, dec)}`) : L('ตั้งสเปรด/ค่าคอมใน สินทรัพย์ หรือกรอกเอง', 'Set spread / commission on the instrument, or type a value'); }
+  const lowNet = finite(netR) && minRR && netR < minRR;
+  const stats = `<div class="calc-h">${L('ผลลัพธ์', 'Result')}</div><div class="live calc-kpi"><div class="hero"><label>${L('ขนาดสัญญา', 'Position size')}</label><strong class="accent">${finite(c.qty) ? fmt(c.qty, 2) : '—'}</strong><small class="sub2">${p.entryPrice != null && p.stopLoss != null ? sideBadge(p.side) : ''}</small></div><div><label>${L('ขาดทุนถ้าถึง S/L', 'Loss at S/L')}</label><strong class="neg">${money(finite(c.risk) ? -c.risk : null, cur)}</strong></div><div><label>${L('กำไรถ้าถึง T/P', 'Profit at T/P')}</label><strong class="pos">${money(tpOk ? c.reward : null, cur, true)}</strong></div></div>
+    <div class="calc-kv"><div><span>${L('R:R (หลังต้นทุน)', 'R:R (after costs)')}</span><strong>${tpOk && finite(c.rr) ? '1 : ' + fmt(c.rr, 2) : '—'}${finite(netR) ? ` <em class="${lowNet ? 'warn' : ''}">(1 : ${fmt(netR, 2)})</em>` : ''}</strong></div><div><span>${L('Win rate คุ้มทุน', 'Break-even win rate')}</span><strong>${finite(be) ? fmt(be, 1) + '%' : '—'}</strong></div></div>`;
+  $('#calc-out').innerHTML = `<div class="calc-res">${stats}${warn.length ? `<div class="notice warn">${icon('alert')}<span>${warn.map(esc).join('<br>')}</span></div>` : ''}<div class="calc-lad">${calcLadderHTML(p, c, cur, dec)}</div><p class="help">${L('ปัดขนาดสัญญาลงตาม step ของสินทรัพย์ เพื่อไม่ให้เสี่ยงเกินงบ · R:R หลังต้นทุน = (ระยะ T/P − ต้นทุน) ÷ (ระยะ S/L + ต้นทุน)', 'Rounded down to the volume step so risk never exceeds budget · R:R after costs = (T/P distance − cost) ÷ (S/L distance + cost)')}</p></div>`;
   window.__calc = { p, c };
 }
 
@@ -198,7 +218,6 @@ function dailyLimitWarnings(r, c) {
 
 const TOOL_ACTIONS = {
   'calc-size': (el, e) => { e?.preventDefault?.(); sizeCalculator(); },
-  'calc-use-cost': el => { const f = $('#f_cost'); if (f) { f.value = el.dataset.value; updateCalc(); } },
   'calc-clear': () => { ['entryPrice', 'stopLoss', 'takeProfit', 'cost', 'balanceOverride'].forEach(k => { const f = $('#f_' + k); if (f) f.value = ''; }); updateCalc(); $('#f_entryPrice')?.focus(); },
   'calc-to-trade': () => {
     const x = window.__calc; if (!x?.p || !(x.p.entryPrice > 0)) { toast(L('ใส่ราคาเข้าก่อน', 'Enter an entry price first'), 'bad'); return; }

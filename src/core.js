@@ -3,7 +3,7 @@
    EdgeDesk 3 — Offline Trading Journal
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'EdgeDesk', APP_VERSION = '3.27.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'EdgeDesk', APP_VERSION = '3.30.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];

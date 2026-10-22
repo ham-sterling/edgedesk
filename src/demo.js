@@ -9,7 +9,7 @@ function demoWorkspace(base) {
   const main = { id: uid('acc'), name: L('บัญชีหลัก', 'Main account'), broker: 'IC Markets', accountType: 'Personal', startingCapital: 25000, currency: 'USD', active: true, createdAt: t0, objective: { enabled: false, profitTargetPct: 10, maxDailyLossPct: 5, maxDrawdownPct: 10, ddMode: 'static', minTradingDays: 0 } };
   const prop = { id: uid('acc'), name: 'Prop Challenge 100K', broker: 'FTMO', accountType: 'Prop Evaluation', startingCapital: 100000, currency: 'USD', active: true, createdAt: t0, objective: { enabled: true, profitTargetPct: 10, maxDailyLossPct: 5, maxDrawdownPct: 10, ddMode: 'static', minTradingDays: 4 } };
   s.accounts = [main, prop]; s.settings.defaultAccount = main.id;
-  for (const i of s.instruments) if (['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'USTECH', 'BTCUSD'].includes(i.symbol)) i.commissionPerLot = i.symbol === 'XAUUSD' || i.assetClass === 'Forex' ? 7 : 1.2;
+  for (const i of s.instruments) if (['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'USTECH', 'BTCUSD'].includes(i.symbol)) { i.commissionPerLot = i.symbol === 'XAUUSD' || i.assetClass === 'Forex' ? 7 : 1.2; i.spread = { EURUSD: .0001, GBPUSD: .00015, USDJPY: .015, XAUUSD: .25, USTECH: 1.5, BTCUSD: 15 }[i.symbol]; }
   const insts = { EURUSD: [1.0850, .0018], GBPUSD: [1.2700, .0022], USDJPY: [151.20, .25], XAUUSD: [2650, 6], USTECH: [21000, 40], BTCUSD: [64000, 450] };
   const syms = Object.keys(insts), weights = { EURUSD: 3, GBPUSD: 2, USDJPY: 1, XAUUSD: 4, USTECH: 2, BTCUSD: 1 };
   const pool = syms.flatMap(k => Array(weights[k]).fill(k));

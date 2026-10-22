@@ -585,6 +585,27 @@ td.menu-cell{width:40px;text-align:right;padding-top:2px;padding-bottom:2px}
 .ins-ic.lg.pair{width:50px;height:44px}.ins-ic.lg.pair .disc,.ins-ic.lg.pair .disc.d2{width:32px;height:32px}
 .ins-ic.xl.pair{width:108px;height:96px}.ins-ic.xl.pair .disc,.ins-ic.xl.pair .disc.d2{width:68px;height:68px}
 @media (max-width:900px){.calc-split{grid-template-columns:minmax(0,1fr)}}
+/* v3.28 — calculator layout: inputs | result + ladder */
+.calc-split{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+.calc-in .calc-ins{display:flex;flex-direction:column;gap:5px}
+.calc-sep{grid-column:1/-1;height:1px;background:var(--border);margin:2px 0}
+.calc-fx:has(> [hidden]){display:none}
+.calc-acct{margin-top:2px}
+.calc-res{display:flex;flex-direction:column;align-items:stretch;gap:12px;grid-template-columns:none}
+.calc-h{font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.calc-out .live.calc-kpi{grid-template-columns:repeat(3,minmax(0,1fr))}
+.calc-out .live.calc-kpi .hero{grid-column:auto;display:block}
+.calc-out .live.calc-kpi .hero strong{font-size:24px}
+.calc-out .live.calc-kpi .hero .sub2{display:block;margin-top:3px}
+.calc-kv{border:1px solid var(--border);border-radius:9px;background:var(--surface2)}
+.calc-kv>div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 12px;font-size:13px}
+.calc-kv>div+div{border-top:1px solid var(--border)}
+.calc-kv span{color:var(--muted);font-weight:600}.calc-kv strong{font-variant-numeric:tabular-nums}
+.calc-kv em{font-style:normal;color:var(--muted);font-weight:600}.calc-kv em.warn{color:var(--warn)}
+.calc-res .help{margin:0}
+.ca-row .btn.ca-edit{margin-left:auto}
+@media (max-width:900px){.calc-split{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.calc-in .formgrid.c3{grid-template-columns:repeat(3,minmax(0,1fr))}.calc-in .field.span4,.calc-in .field.calc-m1{grid-column:1/-1}.calc-out .live.calc-kpi .hero strong{font-size:20px}.calc-out .live.calc-kpi strong{font-size:13.5px}.calc-out .live.calc-kpi>div{padding:7px 8px}}
 [hidden]{display:none!important}
 /* v3.17 — journal mini calendar: colour only; dashboard rows */
 .cal.color-only .day{display:grid;place-items:center;padding:0}.cal.color-only .day .dn{font-size:11px;font-weight:650}
@@ -639,3 +660,7 @@ td.menu-cell{width:40px;text-align:right;padding-top:2px;padding-bottom:2px}
 .login-card{width:min(380px,100%);background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:28px 24px;box-shadow:var(--shadow)}
 .login-card h1{margin:12px 0 2px;font-size:22px}
 .login-logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#7b8bff,#b06cff)}.login-logo .icon{width:24px;height:24px}
+/* v3.30 — notes: the editor column scrolls on its own (regular notes and Daily Journal); toolbar stays visible */
+.notes-layout>.editor{overflow-y:auto;overflow-x:hidden;min-height:0;max-height:calc(100vh - 150px);overscroll-behavior:contain}
+.notes-layout>.editor>.rtb{position:sticky;top:0;z-index:4;background:var(--surface)}
+@media (max-width:900px){.notes-layout{overflow:visible}.notes-layout>.editor{max-height:none;overflow:visible}.notes-layout>.editor>.rtb{top:48px}}
