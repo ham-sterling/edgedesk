@@ -1,12 +1,25 @@
 // EdgeDesk build — concatenates src/*.js in order and inlines the CSS.
 //   node build.mjs            → dist/EdgeDesk_v<version>.html  (standalone, data in the browser)
 //   node build.mjs --cloud    → public/index.html               (Cloudflare build, data in D1)
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url)), src = join(root, 'src');
 const cloud = process.argv.includes('--cloud');
 const order = ['icons_lucide.js', 'icons.js', 'core.js', 'cloud.js', 'strategies.js', 'calc.js', 'charts.js', 'ui.js', 'glossary.js', 'guard.js', 'demo.js', 'views_main.js', 'views_journal.js', 'views_notes.js', 'views_reports.js', 'views_settings.js', 'autobackup.js', 'icons_editor.js', 'notes_tpl.js', 'rte_table.js', 'rte_list.js', 'tools.js', 'riskmon.js', 'specfix.js', 'executions.js', 'wstabs.js', 'main.js'];
+/* missing source files (e.g. new files not uploaded to GitHub): explain clearly, and on Cloudflare fall back to the
+   committed public/index.html when it already is this version — the deploy then still succeeds */
+{
+  const need = [...order, 'fonts.css'].filter(f => !existsSync(join(src, f)));
+  if (existsSync(join(src, 'fonts.css'))) for (const m of readFileSync(join(src, 'fonts.css'), 'utf8').matchAll(/url\((fonts\/[\w.-]+\.woff2)\)/g)) if (!existsSync(join(src, m[1]))) need.push(m[1]);
+  if (need.length) {
+    const ver = (() => { try { return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; } catch { return ''; } })();
+    const pub = join(root, 'public', 'index.html'), prebuilt = ver && existsSync(pub) && readFileSync(pub, 'utf8').includes(`APP_VERSION = '${ver}'`);
+    const list = need.map(f => '  - src/' + f).join('\n');
+    if (cloud && prebuilt) { console.warn(`⚠ ไม่พบไฟล์ใน src (ยังไม่ได้อัปโหลด) / missing source files:\n${list}\n→ ใช้ public/index.html v${ver} ที่ build ไว้แล้วแทน (deploy ได้ตามปกติ) / using the prebuilt public/index.html v${ver}`); process.exit(0); }
+    console.error(`✖ ไม่พบไฟล์ใน src — อัปโหลดไฟล์เหล่านี้ขึ้น GitHub ก่อน / missing source files, upload them first:\n${list}`); process.exit(1);
+  }
+}
 let js = "'use strict';\n" + (cloud ? 'const EDGEDESK_CLOUD = true;\n' : '') + order.map(f => readFileSync(join(src, f), 'utf8').replace("'use strict';", '')).join('\n');
 if (js.toLowerCase().includes('</script')) throw new Error('</script inside JS');
 /* fonts are inlined as data: URIs so the single file works offline */

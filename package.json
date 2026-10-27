@@ -5,9 +5,10 @@
   "type": "module",
   "description": "EdgeDesk trading journal — Cloudflare Workers + D1 edition",
   "scripts": {
-    "build": "node build.mjs --cloud && node build.mjs",
+    "build": "node build.mjs --cloud",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "build:standalone": "node build.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.45.0"
