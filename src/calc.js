@@ -4,12 +4,58 @@
    ============================================================ */
 function specOf(t) { return t.instrumentSnapshot?.id === t.instrumentId ? t.instrumentSnapshot : get('instruments', t.instrumentId); }
 function pipSizeOf(t) { const h = specOf(t)?.pipSize, c = get('instruments', t.instrumentId)?.pipSize; return h > 0 ? h : c > 0 ? c : null; }
+/* profit-currency value of a 1.0 price move on 1 lot — MT5 SYMBOL_CALC_MODE:
+   Forex · Forex No Leverage · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
+   Futures → (close − open) × Tick value ÷ Tick size × Lots
+   specs saved before v3.46 (no calcMode, e.g. trade snapshots) keep the tick-value formula */
+function unitRate(i) {
+  if (!i) return null; const m = i.multiplier || 1;
+  if (i.calcMode && i.calcMode !== 'Futures') return i.contractSize > 0 ? i.contractSize * m : null;
+  return i.tickSize > 0 && i.tickValue > 0 ? i.tickValue / i.tickSize * m : null;
+}
+/* ---------- cent accounts (v3.50) — USC = 1/100 USD, EUC = 1/100 EUR. Profit and margin are worked out in the
+   symbol's currency, then converted: USD → USC is a fixed ×100; other currencies use the trade's FX rate to the
+   parent currency (USD), then ×100. Instrument specs stay exactly as the broker shows them. ---------- */
+const CENT = { USC: 'USD', EUC: 'EUR' };
+const isCent = c => !!CENT[c];
+const centParent = c => CENT[c] || c;
+const centMul = c => CENT[c] ? 100 : 1;
+/* value currency → account currency; null when an FX rate is needed but missing */
+const defaultFx = (from, to) => { const r = state?.settings?.fxRates?.[from + ':' + to]; return r > 0 ? r : null; };
+function fxFactor(vc, ac, fxRate) { if (!ac || !vc || vc === ac) return 1; if (vc === centParent(ac)) return centMul(ac); const r = fxRate > 0 && fxRate !== 1 ? fxRate : defaultFx(vc, centParent(ac)); return r ? r * centMul(ac) : null; } // a stored rate of exactly 1 between two different currencies is a leftover default, not a real rate
+const fxNeededFor = (vc, ac) => !!(vc && ac && vc !== ac && vc !== centParent(ac));
+/* totals across a cent account and a normal one: report the cent account in its parent currency */
+function scopeMixedCent() { const cs = currentAccounts().map(a => a.currency); return cs.some(isCent) && cs.some(c => !isCent(c)); }
+function repDiv(accountId) { const c = get('accounts', accountId)?.currency; return isCent(c) && scopeMixedCent() ? centMul(c) : 1; }
+const repNet = t => { const n = calc(t).net; return finite(n) ? n / repDiv(t.accountId) : n; };
 function tickRate(t) {
-  const i = specOf(t); if (!i || !(i.tickSize > 0) || !(i.tickValue > 0)) return null;
-  const ac = get('accounts', t.accountId)?.currency;
-  const fx = (i.valueCurrency || i.quoteCurrency) === ac || !ac ? 1 : t.fxRate;
+  const i = specOf(t), u = unitRate(i); if (!u) return null;
+  const fx = fxFactor(i.valueCurrency || i.quoteCurrency, get('accounts', t.accountId)?.currency, t.fxRate);
   if (!(fx > 0)) return null;
-  return i.tickValue / i.tickSize * (i.multiplier || 1) * fx;
+  return u * fx;
+}
+/* margin per MT5 SYMBOL_CALC_MODE, converted to the account currency
+   Forex:              Lots × Contract size ÷ Leverage × Margin rate        (base currency)
+   Forex No Leverage:  Lots × Contract size × Margin rate                   (base currency)
+   Contracts:          Lots × Contract size × Price × Margin rate
+   Contracts Leverage: Lots × Contract size × Price ÷ Leverage × Margin rate
+   Futures:            Lots × Initial margin × Margin rate */
+function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
+  const i = spec || get('instruments', instrumentId), a = get('accounts', accountId);
+  const mode = i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol), lev = a?.leverage > 0 ? a.leverage : null;
+  const out = { v: null, mode, lev, need: [] };
+  if (!i || !(lots > 0) || !(price > 0)) return out;
+  const cs = i.contractSize || 0, mr = i.marginRate > 0 ? i.marginRate : null, ac = a?.currency, vc = i.valueCurrency || i.quoteCurrency;
+  if (!mr) out.need.push('marginRate');
+  if ((mode === 'Forex' || mode === 'Contracts Leverage') && !lev) out.need.push('leverage');
+  if (mode === 'Futures' && !(i.initialMargin > 0)) out.need.push('initialMargin');
+  if (out.need.length) return out;
+  let v = { 'Forex': lots * cs / lev * mr, 'Forex No Leverage': lots * cs * mr, 'Contracts': lots * cs * price * mr, 'Contracts Leverage': lots * cs * price / lev * mr, 'Futures': lots * i.initialMargin * mr }[mode];
+  if (!finite(v)) return out;
+  if (mode === 'Forex' || mode === 'Forex No Leverage') { if (i.baseCurrency && (i.baseCurrency === ac || i.baseCurrency === centParent(ac))) return { ...out, v: v * (i.baseCurrency === ac ? 1 : centMul(ac)) }; v *= price; } // base → quote
+  const fx = fxFactor(vc, ac, fxRate);
+  if (fx == null) { out.need.push('fxRate'); return out; }
+  return { ...out, v: v * fx };
 }
 function calc(t) {
   const hit = calcCache.get(t); if (hit) return hit;
@@ -40,7 +86,7 @@ function calc(t) {
 }
 function value(t, u = ui.unit) {
   if (t.status !== 'Closed') return null; const c = calc(t);
-  switch (u) { case 'P&L': return c.net; case 'R': return c.r; case '%': return c.change; case 'Pips': return c.pips; case 'Points': return c.points; default: return c.net; }
+  switch (u) { case 'P&L': return finite(c.net) ? c.net / repDiv(t.accountId) : c.net; case 'R': return c.r; case '%': return c.change; case 'Pips': return c.pips; case 'Points': return c.points; default: return c.net; }
 }
 const txnValue = t => ['Withdrawal', 'Fee'].includes(t.type) ? -Math.abs(t.amount) : t.type === 'Reset' ? t.amount : Math.abs(t.amount) * (t.type === 'Adjustment' ? Math.sign(t.amount) || 1 : 1);
 function accountEvents(id) { return memoize('ev:' + id, () => accountEventsRaw(id)); }
@@ -66,7 +112,7 @@ function planCalc(p) {
 /* R a missed setup would have made: from intended entry to where price went (exit price), risk = entry→SL */
 function missedR(t) { if (!(t.entryPrice > 0) || t.stopLoss == null || t.exitPrice == null) return null; const dist = Math.abs(t.entryPrice - t.stopLoss); if (dist < EPS) return null; return (t.exitPrice - t.entryPrice) * (t.side === 'Sell' ? -1 : 1) / dist; }
 function currencies(rows) { const ids = new Set(); for (const t of rows) ids.add(t.accountId); return [...new Set([...ids].map(id => get('accounts', id)?.currency).filter(Boolean))]; }
-function monetaryAllowed(rows) { return currencies(rows).length <= 1; }
+function monetaryAllowed(rows) { const cs = currencies(rows); return cs.length <= 1 || new Set(cs.map(centParent)).size <= 1; }
 
 /* ---------- filtering ---------- */
 function isMistakeTag(id) { return memoize('mistakeTags', () => new Set(state.tags.filter(t => t.categoryId === 'cat_mistakes').map(t => t.id))).has(id); }
@@ -113,17 +159,17 @@ function drawdown(values, start = 0) {
 function streaks(values) { let w = 0, l = 0, cw = 0, cl = 0; for (const x of values) { if (x > EPS) { cw++; cl = 0; } else if (x < -EPS) { cl++; cw = 0; } else { cw = 0; cl = 0; } w = Math.max(w, cw); l = Math.max(l, cl); } let cur = 0; for (let i = values.length - 1; i >= 0; i--) { const s = Math.sign(values[i] > EPS ? 1 : values[i] < -EPS ? -1 : 0); if (!s) break; if (!cur) cur = s; else if (Math.sign(cur) !== s) break; else cur += s; } return { maxWin: w, maxLoss: l, current: cur }; }
 const sortedCache = new WeakMap();
 function closedSorted(rows) { let r = sortedCache.get(rows); if (r) return r; r = rows.filter(t => t.status === 'Closed').map(t => [tradeTime(t) || '', t]).sort((a, b) => cmpStr(a[0], b[0])).map(x => x[1]); sortedCache.set(rows, r); return r.slice(); }
-function startingCapitalOf(rows) { const ids = [...new Set(rows.map(t => t.accountId))]; return sum(ids.map(id => get('accounts', id)?.startingCapital || 0)); }
+function startingCapitalOf(rows) { const ids = [...new Set(rows.map(t => t.accountId))]; return sum(ids.map(id => (get('accounts', id)?.startingCapital || 0) / repDiv(id))); }
 
 const statsCache = new WeakMap();
 function stats(rows, u = ui.unit) { let m = statsCache.get(rows); if (!m) { m = new Map(); statsCache.set(rows, m); } const k = u + '|' + (state.settings.dayBasis || 'exit'); if (!m.has(k)) m.set(k, statsRaw(rows, u)); return m.get(k); }
 function statsRaw(rows, u) {
   const closed = closedSorted(rows), cs = closed.map(calc);
-  const nets = cs.map(c => c.net).filter(finite), rs = cs.map(c => c.r).filter(finite);
+  const nets = closed.map(repNet).filter(finite), rs = cs.map(c => c.r).filter(finite);
   const vals = closed.map(t => value(t, u)).filter(finite);
   const wins = nets.filter(n => n > EPS), losses = nets.filter(n => n < -EPS);
   const vw = vals.filter(v => v > EPS), vl = vals.filter(v => v < -EPS);
-  const days = {}; closed.forEach(t => { const d = tradeDay(t); (days[d] ??= []).push(calc(t).net); });
+  const days = {}; closed.forEach(t => { const d = tradeDay(t); (days[d] ??= []).push(repNet(t)); });
   const dk = Object.keys(days).sort(), dv = dk.map(d => sum(days[d]));
   const start = startingCapitalOf(closed), dd = drawdown(nets, start), ddU = drawdown(vals), st = streaks(nets), dst = streaks(dv);
   const wr = nets.length ? wins.length / nets.length : null, aw = mean(wins), al = mean(losses);
@@ -154,7 +200,7 @@ function statsRaw(rows, u) {
     // streaks
     cw: st.maxWin, cl: st.maxLoss, curStreak: st.current, cwd: dst.maxWin, cld: dst.maxLoss,
     // costs, durations
-    commission: sum(closed.map(t => t.commission || 0)), swap: sum(closed.map(t => t.swap || 0)),
+    commission: sum(closed.map(t => (t.commission || 0) / repDiv(t.accountId))), swap: sum(closed.map(t => (t.swap || 0) / repDiv(t.accountId))),
     duration: mean(durations), winDuration: mean(cs.filter(c => c.net > EPS).map(c => c.duration)), lossDuration: mean(cs.filter(c => c.net < -EPS).map(c => c.duration)),
     maxDuration: durations.length ? Math.max(...durations) : null, minDuration: durations.length ? Math.min(...durations) : null,
     tradesPerDay: dv.length ? closed.length / dv.length : null, start, ret: start > 0 ? sum(nets) / start * 100 : null,
@@ -180,15 +226,15 @@ function sessionRaw(t) {
   const lon = hl >= 8 && hl < 17, ny = hn >= 8 && hn < 17;
   return lon && ny ? 'London–NY' : lon ? 'London' : ny ? 'New York' : (ht >= 7 && ht < 18) ? 'Asia' : 'After hours';
 }
-const SESSION_TH = { 'Asia': 'เอเชีย', 'London': 'ลอนดอน', 'London–NY': 'ลอนดอน–NY', 'New York': 'NY', 'After hours': 'นอกเวลา', 'Unknown': 'ไม่ทราบ' };
-const SESSION_EN = { 'New York': 'NY' };
+const SESSION_TH = { 'Asia': 'เอเชีย', 'London': 'ลอนดอน', 'London–NY': 'ลอนดอน–นิวยอร์ก', 'New York': 'นิวยอร์ก', 'After hours': 'นอกเวลา', 'Unknown': 'ไม่ทราบ' };
+const SESSION_EN = { 'London–NY': 'London–New York' }; // v3.60: spell out New York
 const sessionLabel = s => L(SESSION_TH[s] || s, SESSION_EN[s] || s);
 const ALL_DIMS = () => [
-  ['instrument', L('สินทรัพย์', 'Instrument')], ['assetClass', L('ประเภทสินทรัพย์', 'Asset class')], ['playbook', 'Strategy'], ['setup', L('Setup (แท็ก)', 'Setup tag')], ['mistake', L('ความผิดพลาด', 'Mistake')], ['context', L('บริบทตลาด', 'Market context')], ['tag', L('แท็กทั้งหมด', 'All tags')],
-  ['side', L('ทิศทาง', 'Side')], ['weekday', L('วันในสัปดาห์', 'Weekday')], ['hour', L('ชั่วโมงที่เข้า', 'Entry hour')], ['session', 'Session'], ['timeframe', 'Timeframe'], ['rbin', 'R-Multiple'], ['month', L('เดือน', 'Month')], ['week', L('สัปดาห์', 'Week')],
-  ['duration', L('ระยะเวลาถือ', 'Holding time')], ['rrange', L('ช่วง R', 'R range')], ['emotion', L('อารมณ์', 'Emotion')], ['rating', L('คะแนนการเทรด', 'Trade rating')], ['account', L('บัญชี', 'Account')]
+  ['instrument', L('สินทรัพย์', 'Instrument')], ['assetClass', L('ประเภทสินทรัพย์', 'Asset class')], ['playbook', L('กลยุทธ์', 'Strategy')], ['setup', L('Setup (แท็ก)', 'Setup tag')], ['mistake', L('ความผิดพลาด', 'Mistake')], ['context', L('บริบทตลาด', 'Market context')], ['tag', L('แท็กทั้งหมด', 'All tags')],
+  ['side', L('ทิศทาง', 'Side')], ['weekday', L('วันในสัปดาห์', 'Weekday')], ['hour', L('ชั่วโมงที่เข้า', 'Entry hour')], ['session', L('เซสชัน', 'Session')], ['timeframe', L('ไทม์เฟรม', 'Timeframe')], ['rbin', 'R-Multiple'], ['month', L('เดือน', 'Month')], ['week', L('สัปดาห์', 'Week')],
+  ['duration', L('ระยะเวลาถือ', 'Duration')], ['rrange', L('ช่วง R', 'R range')], ['emotion', L('อารมณ์', 'Emotion')], ['rating', L('คะแนนการเทรด', 'Trade rating')], ['account', L('บัญชี', 'Account')]
 ];
-const dimLabel = k => String(k).startsWith('tagcat:') ? (state.tagCategories.find(c => c.id === k.slice(7))?.name || L('แท็ก', 'Tags')) : (ALL_DIMS().find(d => d[0] === k) || [k, k])[1];
+const dimLabel = k => String(k).startsWith('tagcat:') ? (catName(state.tagCategories.find(c => c.id === k.slice(7))) || L('แท็ก', 'Tags')) : (ALL_DIMS().find(d => d[0] === k) || [k, k])[1];
 /* Dimensions offered in Breakdown: only the ones that answer a decision.
    Outcome-based (R range, rating), duplicated (mistake, emotion → Psychology; month/week → Statistics)
    and over-fragmented (hour, all tags) dimensions stay available to other pages but are not offered here. */
@@ -211,12 +257,12 @@ function groupKeys(t, dim) {
     case 'rbin': return [rbinOf(c.r)];
     case 'instrument': return [nameOf('instruments', t.instrumentId, 'symbol')];
     case 'assetClass': { const a = get('instruments', t.instrumentId)?.assetClass || 'Other'; return [a]; }
-    case 'playbook': return [t.playbookId ? nameOf('playbooks', t.playbookId) : L('ไม่มี Strategy', 'No strategy')];
+    case 'playbook': return [t.playbookId ? nameOf('playbooks', t.playbookId) : L('ไม่มีกลยุทธ์', 'No strategy')];
     case 'setup': case 'mistake': case 'context': { const cat = { setup: 'cat_setups', mistake: 'cat_mistakes', context: 'cat_context' }[dim]; const k = (t.tags || []).filter(id => get('tags', id)?.categoryId === cat).map(id => nameOf('tags', id)); return k.length ? k : [dim === 'mistake' ? L('ไม่มีความผิดพลาด', 'No mistake') : L('ไม่ระบุ', 'Untagged')]; }
     case 'tag': { const k = (t.tags || []).map(id => nameOf('tags', id)); return k.length ? k : [L('ไม่มีแท็ก', 'Untagged')]; }
     case 'side': return [t.side === 'Buy' ? 'Long' : 'Short'];
     case 'weekday': return d ? [String(weekdayOfKey(d))] : ['?'];
-    case 'hour': { const p = dateParts(t.entryDateTime); return [p ? p.hour + ':00' : '?']; }
+    case 'hour': { const p = dateParts(t.entryDateTime, tradeZone(t)); return [p ? p.hour + ':00' : '?']; }
     case 'session': return [sessionOf(t)];
     case 'timeframe': return [t.timeframe || '—'];
     case 'month': return [tradeDay(t).slice(0, 7)];
@@ -286,9 +332,9 @@ function dayDiscipline(dayKey, accountId = ui.account) {
   const R = state.settings.rules || {};
   const byDay = memoize('byDay', () => { const m = new Map(); for (const t of state.trades) { if (t.status === 'Void' || t.status === 'Missed') continue; const d = tradeDay(t); if (!m.has(d)) m.set(d, []); m.get(d).push(t); } for (const arr of m.values()) arr.sort((a, b) => cmpStr(String(tradeTime(a)), String(tradeTime(b)))); return m; });
   const rows = (byDay.get(dayKey) || []).filter(t => !accountId || t.accountId === accountId);
-  const closed = rows.filter(t => t.status === 'Closed'), net = sum(closed.map(t => calc(t).net));
+  const closed = rows.filter(t => t.status === 'Closed'), net = sum(closed.map(t => repNet(t) || 0));
   const accs = accountId ? [get('accounts', accountId)].filter(Boolean) : state.accounts.filter(a => a.active !== false);
-  const startBal = sum(accs.map(a => accountBalance(a.id, +new Date(toISO(dayKey + 'T00:00')))));
+  const startBal = sum(accs.map(a => accountBalance(a.id, +new Date(toISO(dayKey + 'T00:00'))) / repDiv(a.id)));
   const lossLimit = R.maxDailyLossPct > 0 && startBal > 0 ? -startBal * R.maxDailyLossPct / 100 : null;
   const st = streaks(closed.map(t => calc(t).net));
   const issues = [];

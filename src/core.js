@@ -3,7 +3,7 @@
    EdgeDesk 3 — Offline Trading Journal
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'EdgeDesk', APP_VERSION = '3.30.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'EdgeDesk', APP_VERSION = '3.61.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -38,8 +38,8 @@ function invalidate() { calcCache = new WeakMap(); dayCache = new WeakMap(); ent
 /* the single rule that decides which calendar day a trade belongs to */
 function tradeTime(t) { return (state?.settings?.dayBasis === 'entry' || t.status !== 'Closed' || !t.exitDateTime) ? t.entryDateTime : t.exitDateTime; }
 let entryDayCache = new WeakMap();
-function entryDay(t) { let d = entryDayCache.get(t); if (d === undefined) { d = dateKey(t.entryDateTime); entryDayCache.set(t, d); } return d; }
-function tradeDay(t) { let d = dayCache.get(t); if (d === undefined) { d = dateKey(tradeTime(t)); dayCache.set(t, d); } return d; }
+function entryDay(t) { let d = entryDayCache.get(t); if (d === undefined) { d = dateKey(t.entryDateTime, tradeZone(t)); entryDayCache.set(t, d); } return d; }
+function tradeDay(t) { let d = dayCache.get(t); if (d === undefined) { d = dateKey(tradeTime(t), tradeZone(t)); dayCache.set(t, d); } return d; }
 const imageCache = new Map();
 let ui = {
   route: 'dashboard', account: '', unit: 'P&L', preset: 'all', from: '', to: '', filters: {}, search: '',
@@ -54,18 +54,45 @@ const defaultCols = ['entryDateTime', 'instrumentId', 'side', 'playbookId', 'tim
 /* ---------- time helpers (timezone aware) ---------- */
 const fmtCache = new Map(), partCache = new Map();
 function tz() { return state?.settings?.timezone || 'Asia/Bangkok'; }
+/* ---------- broker server time (v3.33) ----------
+   'NY+7' = New York time + 7 h: UTC+2 in winter, UTC+3 when the US is on
+   daylight time — the usual MT4/MT5 server clock (the daily candle closes
+   at 17:00 New York). Other values are IANA zones (incl. Etc/GMT±N). */
+const NY7 = 'NY+7';
+const timeView = () => state?.settings?.timeView === 'broker' ? 'broker' : 'local';
+const accZone = id => get('accounts', id)?.brokerTz || tz();
+const viewZone = accountId => timeView() === 'broker' ? accZone(accountId) : tz();
+const tradeZone = t => viewZone(t?.accountId);
+/* the clock used to TYPE trade times: the account's broker clock (as shown in MT4/MT5) unless switched to local */
+const inputZone = accountId => state?.settings?.inputClock === 'local' ? tz() : accZone(accountId);
+function zoneOffsetMin(zone, at = Date.now()) { const p = dateParts(new Date(at).toISOString(), zone); if (!p) return 0; return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(at / 60000) * 60000) / 60000); }
+function utcLabel(zone, at) { const m = zoneOffsetMin(zone, at), s = m < 0 ? '−' : '+', a = Math.abs(m); return `UTC${s}${Math.floor(a / 60)}${a % 60 ? ':' + String(a % 60).padStart(2, '0') : ''}`; }
+function zoneName(zone) {
+  if (zone === NY7) return L('เวลาเซิร์ฟเวอร์ MT (NY+7)', 'MT server time (NY+7)');
+  const m = /^Etc\/GMT([+-]\d+)$/.exec(zone || ''); if (m) return 'UTC' + (m[1][0] === '-' ? '+' : '−') + m[1].slice(1);
+  return zone === 'UTC' ? 'UTC' : String(zone || '').replace(/_/g, ' ');
+}
+function brokerTzOptions(cur = '') {
+  const fixed = []; for (let h = -12; h <= 14; h++) if (h) fixed.push([`Etc/GMT${h > 0 ? '-' : '+'}${Math.abs(h)}`, `UTC${h > 0 ? '+' : '−'}${Math.abs(h)} ${L('(คงที่)', '(fixed)')}`]);
+  const named = [['Europe/London', L('ลอนดอน (UTC+0/+1)', 'London (UTC+0/+1)')], ['Europe/Athens', L('ยุโรปตะวันออก EET (UTC+2/+3 ตามยุโรป)', 'Eastern Europe EET (UTC+2/+3, EU DST)')], ['America/New_York', L('นิวยอร์ก (UTC−5/−4)', 'New York (UTC−5/−4)')], ['Asia/Bangkok', L('กรุงเทพ (UTC+7)', 'Bangkok (UTC+7)')], ['Asia/Tokyo', L('โตเกียว (UTC+9)', 'Tokyo (UTC+9)')], ['Australia/Sydney', L('ซิดนีย์ (UTC+10/+11)', 'Sydney (UTC+10/+11)')]];
+  const all = [['', L('ไม่ระบุ — ใช้เขตเวลาของแอป', 'Not set — use the app timezone')], [NY7, L('UTC+2/+3 ตามเวลาออมแสงสหรัฐ — มาตรฐาน MT4/MT5', 'UTC+2/+3 with US DST — standard MT4/MT5')], ['UTC', 'UTC+0 (GMT)'], ...named, ...fixed];
+  if (cur && !all.some(o => o[0] === cur)) all.splice(1, 0, [cur, zoneName(cur)]);
+  return all.map(([v, l]) => opt(v, l + (v ? ` · ${L('ตอนนี้', 'now')} ${utcLabel(v)}` : ''), cur)).join('');
+}
 function dateParts(v, zone = tz()) {
   if (!v) return null; const d = new Date(v); if (!Number.isFinite(+d)) return null;
+  if (zone === NY7) return dateParts(new Date(+d + 7 * 3600000).toISOString(), 'America/New_York');
   const key = zone + '|' + v; if (partCache.has(key)) return partCache.get(key);
   let f = fmtCache.get(zone);
   if (!f) { try { f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short' }); } catch { f = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short' }); } fmtCache.set(zone, f); }
   const r = Object.fromEntries(f.formatToParts(d).map(x => [x.type, x.value]));
   if (partCache.size > 150000) partCache.clear(); partCache.set(key, r); return r;
 }
-function dateKey(v) { const p = dateParts(v); return p ? `${p.year}-${p.month}-${p.day}` : ''; }
-function localInput(v) { const p = dateParts(v); return p ? `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}` : ''; }
+function dateKey(v, zone) { const p = dateParts(v, zone); return p ? `${p.year}-${p.month}-${p.day}` : ''; }
+function localInput(v, zone) { const p = dateParts(v, zone); return p ? `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}` : ''; }
 function toISO(v, zone = tz()) {
   if (!v) return '';
+  if (zone === NY7) { const r = toISO(v, 'America/New_York'); return r && !/Z$|[+-]\d\d:\d\d$/.test(v) ? new Date(+new Date(r) - 7 * 3600000).toISOString() : r; }
   if (/Z$|[+-]\d\d:\d\d$/.test(v)) { const n = new Date(v); return Number.isFinite(+n) ? n.toISOString() : ''; }
   const m = String(v).trim().replace(/\./g, '-').replace(' ', 'T').match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:T(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if (!m) return '';
@@ -84,14 +111,15 @@ const monthName = (m, full = false) => LANG === 'en' ? (full ? EN_MONTHS_FULL : 
 const dayName = (d, full = false) => LANG === 'en' ? EN_DAYS[d] : (full ? TH_DAYS_FULL : TH_DAYS)[d];
 function fmtDate(v, opts = {}) {
   if (!v) return '—';
-  const key = /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : dateKey(v); if (!key) return '—';
+  const key = /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : dateKey(v, opts.zone); if (!key) return '—';
   const [y, m, d] = key.split('-').map(Number);
   const base = `${d} ${monthName(m - 1)}${opts.year === false ? '' : ' ' + (opts.short ? String(y).slice(2) : y)}`;
-  if (opts.time && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) { const p = dateParts(v); return base + ' · ' + p.hour + ':' + p.minute; }
+  if (opts.time && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) { const p = dateParts(v, opts.zone); return base + ' · ' + p.hour + ':' + p.minute; }
   return base;
 }
-function fmtTime(v) { const p = dateParts(v); return p ? p.hour + ':' + p.minute : '—'; }
-function todayKey() { return dateKey(now()); }
+function fmtTime(v, zone) { const p = dateParts(v, zone); return p ? p.hour + ':' + p.minute : '—'; }
+/* "today" follows the display clock: in Broker view it is the broker's trading day */
+function todayKey() { return dateKey(now(), timeView() === 'broker' ? accZone(ui?.account || state?.settings?.defaultAccount || state?.accounts?.[0]?.id) : undefined); }
 function shiftKey(key, { days = 0, months = 0, years = 0 } = {}) { const d = new Date(key + 'T12:00:00Z'); if (years) d.setUTCFullYear(d.getUTCFullYear() + years); if (months) d.setUTCMonth(d.getUTCMonth() + months); if (days) d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
 function weekdayOfKey(key) { return new Date(key + 'T12:00:00Z').getUTCDay(); }
 function weekStartKey(key) { const wd = weekdayOfKey(key), ws = state?.settings?.weekStart ?? 1; return shiftKey(key, { days: -((wd - ws + 7) % 7) }); }
@@ -104,22 +132,23 @@ function fmt(v, d = 2, signed = false) {
   return (signed && v > 0 ? '+' : '') + v.toLocaleString(state?.settings?.numberLocale || 'en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 function compact(v) { if (!finite(v)) return '—'; const a = Math.abs(v); if (a >= 1e9) return fmt(v / 1e9, 1) + 'B'; if (a >= 1e6) return fmt(v / 1e6, 1) + 'M'; if (a >= 1e4) return fmt(v / 1e3, 1) + 'K'; return fmt(v, a < 10 ? 2 : 0); }
-function currencySymbol(c) { if (!c) return '$'; try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: String(c).toUpperCase(), currencyDisplay: 'narrowSymbol' }).formatToParts(0).find(x => x.type === 'currency')?.value || c + ' '; } catch { return c + ' '; } }
+function currencySymbol(c) { if (!c) return '$'; if (isCent(String(c).toUpperCase())) return String(c).toUpperCase() + ' '; try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: String(c).toUpperCase(), currencyDisplay: 'narrowSymbol' }).formatToParts(0).find(x => x.type === 'currency')?.value || c + ' '; } catch { return c + ' '; } }
 function money(v, cur = '', signed = false) {
   if (!finite(v)) return '—';
   const s = Math.abs(v) < EPS || Number(Math.abs(v).toFixed(state?.settings?.currencyDecimals ?? 2)) === 0 ? '' : v < 0 ? '−' : signed ? '+' : '';
-  return s + currencySymbol(cur || baseCurrency()) + fmt(Math.abs(v), state?.settings?.currencyDecimals ?? 2);
+  const c = String(cur || baseCurrency()).toUpperCase(), n = fmt(Math.abs(v), state?.settings?.currencyDecimals ?? 2);
+  return isCent(c) ? `${s}${n} ${c}` : s + currencySymbol(c) + n; // cent: "1,234.50 USC"
 }
 function unitFmt(v, u = ui.unit, signed = true, cur = '') {
   if (!finite(v)) return '—';
   if (u === 'P&L') return money(v, cur, signed);
   if (u === 'R') return fmt(v, 2, signed) + 'R';
   if (u === '%') return fmt(v, 2, signed) + '%';
-  if (u === 'Pips') return fmt(v, 1, signed) + L(' pips', ' pips');
+  if (u === 'Pips') return fmt(v, 1, signed) + L(' ปิ๊บ', ' pips');
   if (u === 'Points') return fmt(v, 1, signed) + ' pts';
   return fmt(v, 2, signed);
 }
-function baseCurrency() { const acc = currentAccounts(); const set = [...new Set(acc.map(a => a.currency))]; return set.length === 1 ? set[0] : (state?.accounts?.[0]?.currency || 'USD'); }
+function baseCurrency() { const acc = currentAccounts(); const set = [...new Set(acc.map(a => a.currency))]; if (set.length > 1 && new Set(set.map(centParent)).size === 1) return centParent(set[0]); return set.length === 1 ? set[0] : (state?.accounts?.[0]?.currency || 'USD'); }
 
 /* ---------- storage ---------- */
 function idbOpen(name, stores) {
@@ -191,7 +220,7 @@ function setupSync() {
 }
 function setSaveLabel(t, bad = false) { const el = $('#save-state'); if (el) { el.textContent = t; el.classList.toggle('neg', bad); } }
 function savePrefs() {
-  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed })); } catch { }
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
 }
 function loadPrefs() {
   try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch { }
@@ -231,6 +260,23 @@ function compressImage(file, maxW = 1800, q = .86) {
 
 /* ---------- defaults ---------- */
 const CURRENCY_NAMES = { AUD: 'Australian Dollar', CAD: 'Canadian Dollar', CHF: 'Swiss Franc', EUR: 'Euro', GBP: 'British Pound', HKD: 'Hong Kong Dollar', JPY: 'Japanese Yen', NZD: 'New Zealand Dollar', USD: 'US Dollar', THB: 'Thai Baht', SGD: 'Singapore Dollar', CNY: 'Chinese Yuan' };
+/* currencies offered in pickers: [code, Thai, English, group] */
+const CURRENCIES = [
+  ['USD', 'ดอลลาร์สหรัฐ', 'US Dollar', 'major'], ['EUR', 'ยูโร', 'Euro', 'major'], ['GBP', 'ปอนด์สเตอร์ลิง', 'British Pound', 'major'], ['JPY', 'เยนญี่ปุ่น', 'Japanese Yen', 'major'], ['AUD', 'ดอลลาร์ออสเตรเลีย', 'Australian Dollar', 'major'], ['NZD', 'ดอลลาร์นิวซีแลนด์', 'New Zealand Dollar', 'major'], ['CAD', 'ดอลลาร์แคนาดา', 'Canadian Dollar', 'major'], ['CHF', 'ฟรังก์สวิส', 'Swiss Franc', 'major'],
+  ['THB', 'บาท', 'Thai Baht', 'asia'], ['USC', 'เซ็นต์สหรัฐ (บัญชีเซ็นต์)', 'US Cent (cent account)', 'asia'], ['SGD', 'ดอลลาร์สิงคโปร์', 'Singapore Dollar', 'asia'], ['HKD', 'ดอลลาร์ฮ่องกง', 'Hong Kong Dollar', 'asia'], ['CNY', 'หยวนจีน', 'Chinese Yuan', 'asia'], ['CNH', 'หยวนจีน (ต่างประเทศ)', 'Chinese Yuan (offshore)', 'asia'], ['MYR', 'ริงกิตมาเลเซีย', 'Malaysian Ringgit', 'asia'], ['IDR', 'รูเปียห์อินโดนีเซีย', 'Indonesian Rupiah', 'asia'], ['PHP', 'เปโซฟิลิปปินส์', 'Philippine Peso', 'asia'], ['VND', 'ดองเวียดนาม', 'Vietnamese Dong', 'asia'], ['INR', 'รูปีอินเดีย', 'Indian Rupee', 'asia'], ['KRW', 'วอนเกาหลีใต้', 'South Korean Won', 'asia'], ['TWD', 'ดอลลาร์ไต้หวัน', 'Taiwan Dollar', 'asia'],
+  ['SEK', 'โครนาสวีเดน', 'Swedish Krona', 'other'], ['NOK', 'โครนนอร์เวย์', 'Norwegian Krone', 'other'], ['DKK', 'โครนเดนมาร์ก', 'Danish Krone', 'other'], ['PLN', 'ซลอตีโปแลนด์', 'Polish Zloty', 'other'], ['CZK', 'โครูนาเช็ก', 'Czech Koruna', 'other'], ['HUF', 'โฟรินต์ฮังการี', 'Hungarian Forint', 'other'], ['TRY', 'ลีราตุรกี', 'Turkish Lira', 'other'], ['ZAR', 'แรนด์แอฟริกาใต้', 'South African Rand', 'other'], ['MXN', 'เปโซเม็กซิโก', 'Mexican Peso', 'other'], ['BRL', 'เรียลบราซิล', 'Brazilian Real', 'other'], ['AED', 'ดีแรห์มยูเออี', 'UAE Dirham', 'other'], ['SAR', 'ริยาลซาอุดีอาระเบีย', 'Saudi Riyal', 'other'], ['ILS', 'เชเกลอิสราเอล', 'Israeli Shekel', 'other'], ['RUB', 'รูเบิลรัสเซีย', 'Russian Ruble', 'other'],
+  ['BTC', 'บิตคอยน์', 'Bitcoin', 'crypto'], ['ETH', 'อีเธอเรียม', 'Ethereum', 'crypto'], ['SOL', 'โซลานา', 'Solana', 'crypto'], ['XRP', 'XRP', 'XRP', 'crypto'], ['BNB', 'BNB', 'BNB', 'crypto'], ['ADA', 'คาร์ดาโน', 'Cardano', 'crypto'], ['DOGE', 'โดจคอยน์', 'Dogecoin', 'crypto'], ['LTC', 'ไลท์คอยน์', 'Litecoin', 'crypto'], ['USDT', 'เทเธอร์', 'Tether', 'crypto'], ['USDC', 'USD Coin', 'USD Coin', 'crypto'],
+  ['XAU', 'ทองคำ', 'Gold', 'metal'], ['XAG', 'เงิน (โลหะ)', 'Silver', 'metal'], ['XPT', 'แพลทินัม', 'Platinum', 'metal'], ['XPD', 'แพลเลเดียม', 'Palladium', 'metal']];
+const curName = code => { const c = CURRENCIES.find(x => x[0] === code); return c ? L(c[1], c[2]) : code; };
+/* Thai display names for the built-in catalogue (shown only while the name is still the generated English one) */
+const INSTRUMENT_NAMES_TH = { XAUUSD: 'ทองคำ / ดอลลาร์สหรัฐ', XAGUSD: 'เงิน / ดอลลาร์สหรัฐ', USOIL: 'น้ำมันดิบ WTI', UKOIL: 'น้ำมันดิบเบรนท์', BTCUSD: 'บิตคอยน์ / ดอลลาร์สหรัฐ', ETHUSD: 'อีเธอเรียม / ดอลลาร์สหรัฐ', SOLUSD: 'โซลานา / ดอลลาร์สหรัฐ', XRPUSD: 'XRP / ดอลลาร์สหรัฐ', AU200: 'ดัชนีออสเตรเลีย 200', DE40: 'ดัชนีเยอรมนี 40', DE50: 'ดัชนีเยอรมนี 50', EU50: 'ดัชนียูโรสต็อกซ์ 50', FR40: 'ดัชนีฝรั่งเศส 40', IT40: 'ดัชนีอิตาลี 40', JP225: 'ดัชนีญี่ปุ่น 225', HK50: 'ดัชนีฮ่องกง 50', UK100: 'ดัชนีอังกฤษ 100', US30: 'ดัชนีสหรัฐ 30 (ดาวโจนส์)', US500: 'ดัชนีสหรัฐ 500 (S&P 500)', US2000: 'ดัชนีสหรัฐ 2000 (รัสเซลล์)', USTECH: 'ดัชนีเทคโนโลยีสหรัฐ 100 (แนสแด็ก)' };
+function insName(i) {
+  if (!i) return ''; const n = i.name || '';
+  if (LANG !== 'th' || n !== instrumentName(i.symbol, i.assetClass, i.baseCurrency, i.quoteCurrency)) return n;
+  if (INSTRUMENT_NAMES_TH[i.symbol]) return INSTRUMENT_NAMES_TH[i.symbol];
+  const th = c => CURRENCIES.find(x => x[0] === c)?.[1];
+  return i.assetClass === 'Forex' && th(i.baseCurrency) && th(i.quoteCurrency) ? `${th(i.baseCurrency)} / ${th(i.quoteCurrency)}` : n;
+}
 const INSTRUMENT_NAMES = { XAUUSD: 'Gold vs US Dollar', XAGUSD: 'Silver vs US Dollar', USOIL: 'WTI Crude Oil', UKOIL: 'Brent Crude Oil', BTCUSD: 'Bitcoin vs US Dollar', ETHUSD: 'Ethereum vs US Dollar', SOLUSD: 'Solana vs US Dollar', XRPUSD: 'XRP vs US Dollar', AU200: 'Australia 200', DE40: 'Germany 40', DE50: 'Germany 50', EU50: 'Euro Stoxx 50', FR40: 'France 40', IT40: 'Italy 40', JP225: 'Japan 225', HK50: 'Hong Kong 50', UK100: 'UK 100', US30: 'US 30', US500: 'US 500', US2000: 'US 2000', USTECH: 'US Tech 100', AMD: 'Advanced Micro Devices', AMZN: 'Amazon', APPL: 'Apple', NDVA: 'NVIDIA', GOOGL: 'Alphabet Class A', MSFT: 'Microsoft', META: 'Meta Platforms', TSLA: 'Tesla', BABA: 'Alibaba' };
 const TIMEFRAMES = ['M1', 'M3', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 const normTF = v => { const s = String(v || '').trim().toUpperCase().replace(/^(\d+)M$/, 'M$1').replace(/^(\d+)MIN$/, 'M$1').replace(/^(\d+)H$/, 'H$1').replace(/^1D$|^D$|^DAILY$/, 'D1').replace(/^1W$|^W$|^WEEKLY$/, 'W1').replace(/^1MN$|^MONTHLY$/, 'MN'); return TIMEFRAMES.includes(s) ? s : ''; };
@@ -244,12 +290,31 @@ const emoji = e => `<span class="emoji" aria-hidden="true">${emoRow(e)?.[2] || '
 const emotionLabel = e => { const x = emoRow(e); return x ? L(x[1], x[0]) : (e || '—'); };
 const emotionHTML = e => { const x = emoRow(e); return x ? `<span class="emo-tag">${emoji(e)}${esc(L(x[1], x[0]))}</span>` : (e ? esc(e) : '—'); };
 const MOODS = ['angry', 'frown', 'meh', 'smile', 'laugh'];
+const MOOD_EMOJI = ['😡', '😟', '😐', '🙂', '😄'];
 const MOOD_LABELS = () => [L('แย่มาก', 'Awful'), L('แย่', 'Bad'), L('ปกติ', 'Okay'), L('ดี', 'Good'), L('ดีมาก', 'Great')];
 function instrumentName(symbol, assetClass = '', base = '', quote = '') {
   symbol = String(symbol || '').toUpperCase(); base = String(base || symbol.slice(0, 3)).toUpperCase(); quote = String(quote || symbol.slice(3, 6)).toUpperCase();
-  if (assetClass === 'Forex' || (symbol.length === 6 && CURRENCY_NAMES[base] && CURRENCY_NAMES[quote])) return `${CURRENCY_NAMES[base] || base} vs ${CURRENCY_NAMES[quote] || quote}`;
+  if (assetClass === 'Forex' || (!assetClass && symbol.length === 6 && base !== quote && CURRENCY_NAMES[base] && CURRENCY_NAMES[quote])) return `${CURRENCY_NAMES[base] || base} vs ${CURRENCY_NAMES[quote] || quote}`;
   return INSTRUMENT_NAMES[symbol] || symbol;
 }
+const INDEX_CONTRACT = 1; // v3.49: back to the broker spec — 1 lot = 1 per index point (v3.45–3.48 used 100 by mistake)
+/* MT5 Specification › Calculation */
+const CALC_MODES = ['Forex', 'Forex No Leverage', 'Contracts', 'Contracts Leverage', 'Futures'];
+const CALC_MODE_INFO = () => ({
+  'Forex': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา ÷ เลเวอเรจ × Margin rate (สกุลเงินฐาน)', 'Profit = price change × contract size × lots · Margin = lots × contract size ÷ leverage × margin rate (base currency)'),
+  'Forex No Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × margin rate (no leverage)'),
+  'Contracts': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × price × margin rate (no leverage)'),
+  'Contracts Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา ÷ เลเวอเรจ × Margin rate', 'Profit = price change × contract size × lots · Margin = lots × contract size × price ÷ leverage × margin rate'),
+  'Futures': L('กำไร = ส่วนต่างราคา × มูลค่าติ๊ก ÷ ขนาดติ๊ก × ล็อต · มาร์จิ้น = ล็อต × Initial margin × Margin rate', 'Profit = price change × tick value ÷ tick size × lots · Margin = lots × initial margin × margin rate'),
+});
+function defaultCalcMode(assetClass, symbol = '') {
+  if (assetClass === 'Forex') return 'Forex';
+  if (assetClass === 'Cryptocurrencies') return 'Forex No Leverage';
+  if (assetClass === 'Metals' && /^XAU/i.test(symbol)) return 'Contracts Leverage';
+  if (assetClass === 'Futures') return 'Futures';
+  return 'Contracts';
+}
+const defaultMarginRate = mode => mode === 'Forex' || mode === 'Contracts Leverage' ? 1 : null;
 function instrumentDefaults() {
   const rows = [];
   'AUDUSD EURUSD GBPUSD NZDUSD USDCAD USDCHF USDJPY AUDCAD AUDCHF AUDJPY AUDNZD CADCHF CADJPY CHFJPY EURAUD EURCAD EURCHF EURGBP EURJPY EURNZD GBPAUD GBPCAD GBPCHF GBPJPY GBPNZD NZDCAD NZDCHF NZDJPY'.split(' ').forEach(s => rows.push({ symbol: s, assetClass: 'Forex', decimals: s.endsWith('JPY') ? 3 : 5, contractSize: 100000, baseCurrency: s.slice(0, 3), quoteCurrency: s.slice(3), minQuantity: .01, maxQuantity: 100, quantityStep: .01, pipSize: s.endsWith('JPY') ? .01 : .0001 }));
@@ -257,9 +322,9 @@ function instrumentDefaults() {
   add('XAUUSD', 'Metals', 2, 100, 'XAU', 'USD', .01, 100, .01, .1); add('XAGUSD', 'Metals', 3, 5000, 'XAG', 'USD', .01, 100, .01, .01);
   add('USOIL', 'Energies', 3, 1000, 'USD', 'USD', .01, 20, .01, .01); add('UKOIL', 'Energies', 3, 1000, 'USD', 'USD', .01, 20, .01, .01);
   [['BTCUSD', 2, 1, 'BTC'], ['ETHUSD', 2, 1, 'ETH'], ['SOLUSD', 2, 10, 'SOL'], ['XRPUSD', 4, 10000, 'XRP']].forEach(([s, d, c, b]) => add(s, 'Cryptocurrencies', d, c, b, 'USD', .01, 100, .01, 10 ** -d));
-  [['AU200', 'AUD'], ['DE40', 'EUR'], ['EU50', 'EUR'], ['FR40', 'EUR'], ['JP225', 'JPY'], ['HK50', 'HKD'], ['UK100', 'GBP'], ['US30', 'USD'], ['US500', 'USD'], ['US2000', 'USD'], ['USTECH', 'USD']].forEach(([s, c]) => add(s, 'Indices', 2, 1, c, c, s === 'JP225' ? 1 : .1, s === 'JP225' ? 20000 : 500, s === 'JP225' ? 1 : .1, 1));
+  [['AU200', 'AUD'], ['DE40', 'EUR'], ['EU50', 'EUR'], ['FR40', 'EUR'], ['JP225', 'JPY'], ['HK50', 'HKD'], ['UK100', 'GBP'], ['US30', 'USD'], ['US500', 'USD'], ['US2000', 'USD'], ['USTECH', 'USD']].forEach(([s, c]) => add(s, 'Indices', 2, INDEX_CONTRACT, c, c, s === 'JP225' ? 1 : .1, s === 'JP225' ? 20000 : 500, s === 'JP225' ? 1 : .1, 1));
   ['AMD', 'AMZN', 'APPL', 'NDVA', 'GOOGL', 'MSFT', 'META', 'TSLA'].forEach(s => add(s, 'Stocks', 2, 1, 'USD', 'USD', .1, 1500, .1, .01));
-  return rows.map(r => ({ ...r, id: 'ins_' + r.symbol, name: instrumentName(r.symbol, r.assetClass, r.baseCurrency, r.quoteCurrency), tickSize: 10 ** -r.decimals, tickValue: +(r.contractSize * 10 ** -r.decimals).toPrecision(12), pointSize: 10 ** -r.decimals, valueCurrency: r.quoteCurrency, multiplier: 1, calculation: r.assetClass === 'Forex' ? 'Forex' : 'Contracts', iconMode: 'Auto', active: true, createdAt: now(), defaultCatalogVersion: 3 }));
+  return rows.map(r => ({ ...r, calcMode: defaultCalcMode(r.assetClass, r.symbol), marginRate: defaultMarginRate(defaultCalcMode(r.assetClass, r.symbol)), id: 'ins_' + r.symbol, name: instrumentName(r.symbol, r.assetClass, r.baseCurrency, r.quoteCurrency), tickSize: 10 ** -r.decimals, tickValue: +(r.contractSize * 10 ** -r.decimals).toPrecision(12), pointSize: 10 ** -r.decimals, valueCurrency: r.quoteCurrency, multiplier: 1, iconMode: 'Auto', active: true, createdAt: now(), defaultCatalogVersion: 3 }));
 }
 function defaultSettings() {
   return { language: 'th', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok', theme: 'dark', accent: 'indigo', density: 'comfortable', numberLocale: 'en-US', currencyDecimals: 2, defaultAccount: '', defaultUnit: 'P&L', dayBasis: 'exit', preferredRisk: 1, riskWarning: 2, weekStart: 1, journalTemplate: 'tpl_journal', rules: { maxDailyLossPct: 3, maxTradesPerDay: 5, maxConsecLosses: 3, minRR: 1.5, requireStop: true } };
@@ -267,12 +332,12 @@ function defaultSettings() {
 function seed() {
   const t = now();
   const s = { meta: { schemaVersion: SCHEMA_VERSION, appVersion: APP_VERSION, createdAt: t, updatedAt: t, onboarded: false }, settings: defaultSettings(), accounts: [], transactions: [], instruments: instrumentDefaults(), tagCategories: [{ id: 'cat_mistakes', name: 'Mistakes', core: true, color: '#ff5d6c' }, { id: 'cat_context', name: 'Market Context', core: false, color: '#f2b33d' }], tags: [], playbooks: [], trades: [], notebookFolders: [{ id: 'nbf_general', name: 'ทั่วไป', createdAt: t }], notebooks: [], importProfiles: [], importBatches: [] };
-  const mistakes = ['Early Entry', 'Late Entry', 'Early Exit', 'Moved Stop', 'Oversized', 'No Setup / FOMO', 'Revenge Trade', 'Broke Rules'];
+  const mistakes = ['Early Entry', 'Late Entry', 'Early Exit', 'Moved Stop', 'Oversized', 'FOMO', 'Revenge Trade', 'Broke Rules'];
   const ctx = ['Trending', 'Ranging', 'High Volatility', 'News Day'];
   mistakes.forEach((n, i) => s.tags.push({ id: 'tag_m' + i, name: n, categoryId: 'cat_mistakes', active: true }));
   ctx.forEach((n, i) => s.tags.push({ id: 'tag_c' + i, name: n, categoryId: 'cat_context', active: true }));
   s.playbooks = []; addPaStrategies(s, t);
-  s.noteTemplates = defaultNoteTemplates(); s.meta.smcCleanup = true; s.meta.v36 = true;
+  s.noteTemplates = defaultNoteTemplates(); s.meta.smcCleanup = true; s.meta.v36 = true; s.meta.v331 = true;
   return s;
 }
 
@@ -318,9 +383,61 @@ function migrate(raw) {
   for (const k of LEGACY) delete d[k]; // v3.18: converted into notes / trades in v3.6 — no longer kept
   // v3.20: per-trade rule checklists retired — rules live on the strategy only
   for (const t of d.trades) delete t.checklist; delete d.settings.planChecklist;
+  if (!d.meta.v331) migrateV331(d);
+  if (!d.meta.v345) migrateV345(d);
+  if (!d.meta.v346) migrateV346(d);
+  if (!d.meta.v349) migrateV349(d);
+  if (!d.meta.v347) { d.meta.v347 = true; for (const pb of d.playbooks || []) if (pb.status !== 'Inactive') pb.status = 'Active'; } // v3.47: Active / Inactive only
   return d;
 }
 
+/* ---------- v3.45: index CFDs — 1 lot = 100 per point (was 1). Only instruments still on the untouched old
+   default are changed; their existing trades are pinned to the old spec so no money changes until the user chooses. */
+function migrateV345(d) { d.meta.v345 = true; } // v3.49: the 100-per-point change is withdrawn — nothing to do for stores that never had it
+/* ---------- v3.46: MT5 calculation modes. Contract size becomes the source of profit for non-futures modes, so
+   where tick value ÷ tick size and contract size disagreed, contract size is set to the ratio that was in use —
+   no amount changes. */
+function migrateV346(d) {
+  d.meta.v346 = true;
+  for (const i of d.instruments) {
+    i.calcMode ||= CALC_MODES.includes(i.calculation) ? i.calculation : defaultCalcMode(i.assetClass, i.symbol); delete i.calculation;
+    if (i.calcMode !== 'Futures' && i.tickSize > 0 && i.tickValue > 0) { const r = i.tickValue / i.tickSize; if (Math.abs(r - (i.contractSize || 0)) > 1e-9 * Math.max(1, r)) i.contractSize = +r.toPrecision(12); }
+    if (i.marginRate === undefined) i.marginRate = defaultMarginRate(i.calcMode);
+  }
+  for (const a of d.accounts) if (a.leverage === undefined) a.leverage = null;
+}
+/* ---------- v3.49: undo the v3.45 index change (100 per point) — broker spec is contract size 1, lots 0.1 / step 0.1.
+   Trades are pinned to the spec they currently show, so no amount changes on update; the recalc tool then lets the
+   user preview and recompute. Only instruments still exactly on the v3.45 values are touched. */
+function migrateV349(d) {
+  d.meta.v349 = true; let stale = false;
+  const rate = i => i && i.calcMode && i.calcMode !== 'Futures' ? (i.contractSize || 0) * (i.multiplier || 1) : i && i.tickSize > 0 ? i.tickValue / i.tickSize * (i.multiplier || 1) : 0;
+  for (const i of d.instruments) {
+    if (i.assetClass !== 'Indices' || i.contractSize !== 100 || i.tickSize !== .01 || i.tickValue !== 1 || (i.multiplier ?? 1) !== 1) continue;
+    const old = clone(i);
+    Object.assign(i, { contractSize: 1, tickValue: .01, updatedAt: now() });
+    if (i.minQuantity === .01) i.minQuantity = i.symbol === 'JP225' ? 1 : .1;
+    if (i.quantityStep === .01) i.quantityStep = i.symbol === 'JP225' ? 1 : .1;
+    for (const t of d.trades) {
+      if (t.instrumentId !== i.id) continue;
+      if (!t.instrumentSnapshot) { t.instrumentSnapshot = old; stale = true; }               // computed at 100 → keep that until the user chooses
+      else if (Math.abs(rate(t.instrumentSnapshot) - 1) < 1e-9) delete t.instrumentSnapshot;  // still on the original 1 → matches again
+      else stale = true;
+    }
+  }
+  if (stale) d.meta.recalcPrompt = true;
+  delete d.meta.specReview;
+  // names like "US Dollar vs US Dollar" given to 6-letter non-forex symbols (e.g. USTECH)
+  for (const i of d.instruments) if (i.assetClass !== 'Forex' && / vs /.test(i.name || '') && i.name === `${CURRENCY_NAMES[i.baseCurrency] || i.baseCurrency} vs ${CURRENCY_NAMES[i.quoteCurrency] || i.quoteCurrency}`) i.name = instrumentName(i.symbol, i.assetClass, i.baseCurrency, i.quoteCurrency);
+}
+/* ---------- v3.31: Thai wording for app-generated names (only where still the original text) ---------- */
+function migrateV331(d) {
+  for (const t of d.tags) if (t.name === 'No Setup / FOMO') { t.name = 'FOMO'; t.updatedAt = now(); }
+  for (const f of d.notebookFolders) if (f.name === 'คู่มือ Strategy') { f.name = 'คู่มือกลยุทธ์'; f.updatedAt = now(); }
+  for (const n of d.notebooks) if (/ — คู่มือ Strategy$/.test(n.title || '')) { n.title = n.title.replace(/คู่มือ Strategy$/, 'คู่มือกลยุทธ์'); n.updatedAt = now(); }
+  for (const t of d.noteTemplates || []) if (t.title === 'Strategy spec · คู่มือ Strategy') { t.title = 'Strategy spec · คู่มือกลยุทธ์'; t.updatedAt = now(); }
+  d.meta.v331 = true;
+}
 /* ---------- v3.6: journal + strategy notes live in Notes; plans retired ---------- */
 const escText = v => esc(String(v || '')).replace(/\n/g, '<br>');
 function journalToNote(j) {
@@ -346,7 +463,7 @@ function migrateV36(d) {
       t.displayId = displayId(d.trades, t.entryDateTime); d.trades.push(t); continue;
     }
     if (!plansFolder) { plansFolder = d.notebookFolders.find(f => f.id === 'nbf_plans') || { id: 'nbf_plans', name: L('แผนเดิม', 'Old plans'), createdAt: now() }; if (!d.notebookFolders.includes(plansFolder)) d.notebookFolders.push(plansFolder); }
-    const rows = [[L('ทิศทาง', 'Side'), p.side === 'Sell' ? 'Short' : 'Long'], [L('ราคาเข้า', 'Entry price'), p.entryPrice], [L('ระดับ Stop', 'Stop level'), p.stopLoss], [L('ระดับเป้าหมาย', 'Target level'), p.takeProfit], [L('ความเสี่ยง %', 'Risk %'), p.riskPct]].filter(r => r[1] != null && r[1] !== '');
+    const rows = [[L('ทิศทาง', 'Side'), p.side === 'Sell' ? 'Short' : 'Long'], [L('ราคาเข้า', 'Entry price'), p.entryPrice], [L('ระดับ S/L', 'Stop level'), p.stopLoss], [L('ระดับเป้าหมาย', 'Target level'), p.takeProfit], [L('ความเสี่ยง %', 'Risk %'), p.riskPct]].filter(r => r[1] != null && r[1] !== '');
     const cl = (p.playbookChecklist || []).map(r => `<div><input type="checkbox"${r.checked ? ' checked' : ''}> <span>${esc(r.label)}</span></div>`).join('');
     const html = `<table><tbody>${rows.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(String(r[1]))}</td></tr>`).join('')}</tbody></table>${p.notes ? `<h3>${L('เหตุผล', 'Thesis')}</h3><p>${escText(plain(p.notes))}</p>` : ''}${p.invalidation ? `<h3>${L('เงื่อนไขยกเลิก', 'Invalidation')}</h3><p>${escText(plain(p.invalidation))}</p>` : ''}${cl ? `<h3>${L('เช็คลิสต์', 'Checklist')}</h3>${cl}` : ''}${p.review ? `<h3>Review</h3><p>${escText(plain(p.review))}</p>` : ''}`;
     d.notebooks.push({ id: uid('note'), folderId: plansFolder.id, title: `${sym} ${p.side === 'Sell' ? 'Short' : 'Long'} · ${fmtDate(p.date || now())}`, html, strategyIds: p.playbookId ? [p.playbookId] : [], fromPlan: p.id, createdAt: p.createdAt || now(), updatedAt: p.updatedAt || now() });
@@ -359,7 +476,7 @@ function migrateV36(d) {
 const byId = new Map();
 function reindex() { byId.clear(); for (const k of COLLECTIONS) for (const r of state[k] || []) byId.set(k + ':' + r.id, r); }
 const get = (kind, id) => id ? (byId.get(kind + ':' + id) || state[kind]?.find(x => x.id === id)) : undefined;
-const nameOf = (kind, id, f = 'name') => get(kind, id)?.[f] || '—';
+const nameOf = (kind, id, f = 'name') => { const r = get(kind, id); if (r && f === 'name' && kind === 'tags') return tagName(r); if (r && f === 'name' && kind === 'tagCategories') return catName(r); return r?.[f] || '—'; };
 function currentAccounts() { return (state?.accounts || []).filter(a => !ui.account || a.id === ui.account); }
 function accountCurrency(t) { return get('accounts', t?.accountId)?.currency || 'USD'; }
 function displayId(records, date) {

@@ -57,7 +57,7 @@ function requestCloseModal() {
 function unsavedDialog(m, el) {
   const canDraft = !!m.draft, hasSave = !!el.querySelector('.modal-f .btn.primary');
   window.__guard = { m, el };
-  openModal({
+  openModal({ center: true,
     title: icon('alert') + L(' ยังไม่ได้บันทึกการแก้ไข', ' Unsaved changes'), size: 'sm', guard: false, cls: 'guard-dlg',
     body: `<p class="muted" style="margin-top:0">${L('ต้องการทำอะไรกับสิ่งที่แก้ไขไว้ในหน้าต่างนี้?', 'What should happen to your edits in this window?')}</p>
       <div class="guard-opts">

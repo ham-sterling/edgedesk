@@ -10,8 +10,14 @@ function opt(v, label, cur) { return `<option value="${esc(v)}" ${String(v) === 
 function options(list, cur, empty) { return (empty != null ? opt('', empty, cur) : '') + list.map(x => Array.isArray(x) ? opt(x[0], x[1], cur) : opt(x, x, cur)).join(''); }
 function entityOptions(kind, cur, empty, filter = x => x.active !== false || x.id === cur) { const label = r => kind === 'instruments' ? r.symbol : r.name; return (empty != null ? opt('', empty, cur) : '') + state[kind].filter(filter).slice().sort((a, b) => label(a).localeCompare(label(b))).map(r => opt(r.id, label(r) + (r.active === false ? L(' (เก็บถาวร)', ' (archived)') : ''), cur)).join(''); }
 function empty(title, text = '', action = '', ic = 'sparkles') { return `<div class="empty"><div class="empty-ic">${icon(ic)}</div><h3>${esc(title)}</h3>${text ? `<p>${esc(text)}</p>` : ''}${action ? `<div class="row center">${action}</div>` : ''}</div>`; }
+/* v3.47 — per-chart unit: each chart can show P&L / R / % / pips / points on its own (else follows the top bar) */
+const CHART_UNITS = () => [['P&L', 'P&L'], ['R', 'R-Multiple'], ['%', '%'], ['Pips', L('ปิ๊บ', 'Pips')], ['Points', L('จุด', 'Points')]];
+const chartUnit = key => { const v = ui.chartUnits?.[key]; return ['P&L', 'R', '%', 'Pips', 'Points'].includes(v) ? v : ui.unit; };
+function unitPick(key) { const v = chartUnit(key); return `<select class="tsel sm unit-pick ${ui.chartUnits?.[key] ? 'set' : ''}" data-chart-unit="${key}" aria-label="${L('หน่วยของกราฟนี้', 'Unit for this chart')}">${CHART_UNITS().map(([k, l]) => opt(k, l, v)).join('')}</select>`; }
+/* build a panel with ui.unit temporarily set to this chart's unit, and put the unit picker in its header */
+function U(key, fn) { const s = ui.unit; ui.unit = chartUnit(key); let html; try { html = fn(ui.unit); } finally { ui.unit = s; } return html.replace('<div class="panel-tools">', `<div class="panel-tools">${unitPick(key)}`); }
 function panel(title, body, tools = '', cls = '', sub = '') { return `<section class="panel ${cls}">${title != null ? `<header class="panel-h"><div><h3>${title}</h3>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="panel-tools">${tools}</div></header>` : ''}<div class="panel-b">${body}</div></section>`; }
-function pageHead(title, sub = '', actions = '') { return `<div class="pagehead"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="row wrap gap8">${actions}</div></div>`; }
+function pageHead(title, sub = '', actions = '') { return `<div class="pagehead"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="row wrap gap8">${actions}</div></div>` + (typeof scopeBar === 'function' && SCOPE_ROOTS.includes(routeRoot()) && !pageHead._done ? (pageHead._done = true, scopeBar()) : ''); }
 function tabs(items, cur, action, extra = '') { return `<div class="tabs" role="tablist">${items.map(([v, l, ic]) => `<button type="button" role="tab" class="tab ${String(v) === String(cur) ? 'on' : ''}" data-action="${action}" data-value="${esc(v)}" ${extra}>${ic ? icon(ic) : ''}${esc(l)}</button>`).join('')}</div>`; }
 function seg(items, cur, action, extra = '') { return `<div class="seg" role="group">${items.map(([v, l]) => `<button type="button" class="${String(v) === String(cur) ? 'on' : ''}" data-action="${action}" data-value="${esc(v)}" ${extra}>${l}</button>`).join('')}</div>`; }
 function menu(items, label = L('เพิ่มเติม', 'More'), ic = 'ellipsis') { return `<details class="menu"><summary class="btn icon-only ghost" aria-label="${esc(label)}">${icon(ic)}</summary><div class="menu-pop">${items.filter(Boolean).join('')}</div></details>`; }
@@ -43,15 +49,17 @@ function insIcon(ins, size = '') {
   return `<span class="ins-ic ${size} ${b ? 'pair' : ''}"><span class="disc">${a}</span>${b ? `<span class="disc d2">${b}</span>` : ''}</span>`;
 }
 function symbolCell(id, sub = '') { const i = get('instruments', id); return `<span class="sym">${insIcon(i)}<span><strong>${esc(i?.symbol || '—')}</strong>${sub ? `<small>${sub}</small>` : ''}</span></span>`; }
-function tagChip(id, removable = false) { const t = get('tags', id); if (!t) return ''; const cat = get('tagCategories', t.categoryId); return `<span class="chip ${t.categoryId === 'cat_mistakes' ? 'mistake' : ''}" style="--c:${esc(cat?.color || 'var(--accent)')}">${esc(t.name)}${removable ? `<button type="button" data-action="tag-remove" data-id="${t.id}" aria-label="remove">×</button>` : ''}</span>`; }
+function tagChip(id, removable = false) { const t = get('tags', id); if (!t) return ''; const cat = get('tagCategories', t.categoryId); return `<span class="chip ${t.categoryId === 'cat_mistakes' ? 'mistake' : ''}" style="--c:${esc(cat?.color || 'var(--accent)')}">${esc(tagName(t))}${removable ? `<button type="button" data-action="tag-remove" data-id="${t.id}" aria-label="remove">×</button>` : ''}</span>`; }
 function tagsHTML(ids, max = 3) { ids = ids || []; return `<span class="chips">${ids.slice(0, max).map(id => tagChip(id)).join('')}${ids.length > max ? `<span class="chip more">+${ids.length - max}</span>` : ''}</span>`; }
 
 /* overlays */
 let modalStack = [], returnFocus = null;
-function openModal({ title, body, foot = '', size = '', cls = '', onClose = null, dismiss = true, guard = false, draft = null, fromDraft = null, saved = false }) {
+function openModal({ title, body, foot = '', size = '', cls = '', onClose = null, dismiss = true, guard = false, draft = null, fromDraft = null, saved = false, center = null }) {
+  // v3.53: display and edit windows slide in from the right; short yes/no prompts stay centred
+  if (center == null) center = size === 'sm' && !/<(input|select|textarea|form)\b/i.test(String(body));
   returnFocus = document.activeElement;
   const id = 'm' + Date.now() + modalStack.length;
-  const html = `<div class="modal-back" data-modal="${id}"><section class="modal ${size} ${cls}" role="dialog" aria-modal="true" aria-label="${esc(String(title).replace(/<[^>]+>/g, ''))}"><header class="modal-h"><h2>${title}</h2>${ibtn('x', 'close-modal', L('ปิด', 'Close'))}</header><div class="modal-b">${body}</div>${foot ? `<footer class="modal-f">${guard || draft ? '<span class="ed-state"></span>' : ''}${foot}</footer>` : ''}</section></div>`;
+  const html = `<div class="modal-back ${center ? 'centered' : 'sheet'}" data-modal="${id}"><section class="modal ${size} ${cls}" role="dialog" aria-modal="true" aria-label="${esc(String(title).replace(/<[^>]+>/g, ''))}"><header class="modal-h"><h2>${title}</h2>${ibtn('x', 'close-modal', L('ปิด', 'Close'))}</header><div class="modal-b">${body}</div>${foot ? `<footer class="modal-f">${guard || draft ? '<span class="ed-state"></span>' : ''}${foot}</footer>` : ''}</section></div>`;
   $('#modal-root').insertAdjacentHTML('beforeend', html); const entry = { id, onClose, dismiss, guard: guard || !!draft, draft, fromDraft, saved }; modalStack.push(entry);
   const el = $(`[data-modal="${id}"]`); mountCharts(el); armGuard(entry, el);
   setTimeout(() => (el.querySelector('[autofocus]') || el.querySelector('input:not([type=hidden]),select,textarea,button.primary'))?.focus(), 30);
@@ -70,12 +78,12 @@ function confirmDialog(title, text, onYes, yesLabel = L('ยืนยัน', 'C
 }
 function promptDialog(title, label, value, onOk) {
   window.__prompt = onOk;
-  openModal({ title, size: 'sm', body: `<form onsubmit="return false" id="prompt-form">${field('promptv', label, value || '', 'text', { attrs: 'autofocus' })}</form>`, foot: btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost') + btn(L('ตกลง', 'OK'), 'prompt-ok', {}, 'primary') });
+  openModal({ title, size: 'sm', center: true, body: `<form onsubmit="return false" id="prompt-form">${field('promptv', label, value || '', 'text', { attrs: 'autofocus' })}</form>`, foot: btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost') + btn(L('ตกลง', 'OK'), 'prompt-ok', {}, 'primary') });
 }
 let drawerState = null;
-function openDrawer({ title, body, foot = '', wide = false, kind = '', id = '' }) {
-  drawerState = { kind, id }; returnFocus ??= document.activeElement;
-  $('#drawer-root').innerHTML = `<div class="drawer-back" data-action="close-drawer-bg"><aside class="drawer ${wide ? 'wide' : ''}" role="dialog" aria-modal="true"><header class="drawer-h">${title}</header><div class="drawer-b">${body}</div>${foot ? `<footer class="drawer-f">${foot}</footer>` : ''}</aside></div>`;
+function openDrawer({ title, body, foot = '', wide = false, kind = '', id = '', dialog = false, cls = '' }) {
+  const again = !!$('#drawer-root .drawer-back.in'); drawerState = { kind, id }; returnFocus ??= document.activeElement;
+  $('#drawer-root').innerHTML = `<div class="drawer-back ${dialog ? 'as-dialog' : ''} ${again ? 'in' : ''}" data-action="close-drawer-bg"><aside class="drawer ${wide ? 'wide' : ''} ${dialog ? 'dlg' : ''} ${cls}" role="dialog" aria-modal="true"><header class="drawer-h">${title}</header><div class="drawer-b">${body}</div>${foot ? `<footer class="drawer-f">${foot}</footer>` : ''}</aside></div>`;
   requestAnimationFrame(() => $('#drawer-root .drawer-back')?.classList.add('in')); mountCharts($('#drawer-root'));
 }
 function closeDrawer() { const el = $('#drawer-root .drawer-back'); if (!el) return false; drawerState = null; el.classList.remove('in'); setTimeout(() => { if (!drawerState) $('#drawer-root').innerHTML = ''; }, 180); return true; }
@@ -102,7 +110,8 @@ function field(name, label, val = '', type = 'text', o = {}) {
   else if (type === 'textarea') input = `<textarea id="${id}" name="${name}" rows="${o.rows || 3}" placeholder="${esc(o.placeholder || '')}" ${o.attrs || ''}>${esc(val)}</textarea>`;
   else input = `<input id="${id}" name="${name}" type="${type}" value="${esc(val ?? '')}" ${type === 'number' ? `step="${o.step || 'any'}" inputmode="decimal"` : ''} placeholder="${esc(o.placeholder || '')}" ${req} ${o.attrs || ''}>`;
   if (o.suffix) input = `<div class="input-suffix">${input}<span>${o.suffix}</span></div>`;
-  return `<div class="field ${o.span ? 'span' + o.span : ''} ${o.cls || ''}"><label for="${id}">${label}${o.required ? ' <i class="req">*</i>' : ''}</label>${input}${help}</div>`;
+  const tip = o.tip ? ` <span class="info-tip" ${o.tipId ? `id="${o.tipId}"` : ''} data-tip="${esc(o.tip)}">${icon('info', 'tiny')}</span>` : '';
+  return `<div class="field ${o.span ? 'span' + o.span : ''} ${o.cls || ''}"><label for="${id}">${label}${o.required ? ' <i class="req">*</i>' : ''}${tip}</label>${input}${help}</div>`;
 }
 function checkField(name, label, checked, help = '') { return `<label class="check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''}><span class="box"></span><span>${label}${help ? `<small class="help">${help}</small>` : ''}</span></label>`; }
 function toggle(name, checked, action = '', extra = '') { return `<label class="switch"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''} ${action ? `data-change="${action}"` : ''} ${extra}><span></span></label>`; }
@@ -110,26 +119,42 @@ function formData(form) {
   const o = {}; new FormData(form).forEach((v, k) => { o[k] = v; });
   $$('input[type=checkbox][name]', form).forEach(c => { o[c.name] = c.checked; }); return o;
 }
+/* currency dropdown grouped by kind; keeps an unknown stored code selectable */
+function currencySelect(name, label, val, o = {}) {
+  const v = String(val || '').toUpperCase(), groups = [['major', L('สกุลหลัก', 'Major')], ['asia', L('เอเชีย', 'Asia')], ['other', L('สกุลอื่น', 'Other')], ['crypto', L('คริปโต', 'Crypto')], ['metal', L('โลหะมีค่า', 'Metals')]];
+  const known = CURRENCIES.some(c => c[0] === v), optOf = c => opt(c[0], `${c[0]} — ${L(c[1], c[2])}`, v);
+  const html = (o.empty ? opt('', o.empty, v) : '') + (v && !known ? opt(v, v, v) : '') + groups.filter(([g]) => !o.only || o.only.includes(g)).map(([g, gl]) => `<optgroup label="${esc(gl)}">${CURRENCIES.filter(c => c[3] === g && (!isCent(c[0]) || c[0] === v)).map(optOf).join('')}</optgroup>`).join(''); // cent codes come from "Account units: Cent"
+  return field(name, label, v, 'select', { html, help: o.help, cls: o.cls, attrs: o.attrs });
+}
+/* Local / Broker clock switch shown on the trade list and the daily journal */
+function timeViewSeg() {
+  const any = state.accounts.some(a => a.brokerTz), tip = any ? L('สลับการแสดงเวลาของเทรด: เวลาเครื่อง หรือเวลาเซิร์ฟเวอร์โบรกเกอร์ของแต่ละบัญชี', 'Show trade times in your local time or each account’s broker server time') : L('ตั้งเขตเวลาเซิร์ฟเวอร์ในหน้าแก้ไขบัญชีก่อน จึงจะสลับเป็นเวลาโบรกเกอร์ได้', 'Set a broker server timezone on an account first');
+  return `<div class="tv-seg" data-tip="${esc(tip)}">${icon('clock', 'tiny')}${seg([['local', L('เครื่อง', 'Local')], ['broker', L('โบรกเกอร์', 'Broker')]], timeView(), 'time-view', any ? '' : 'disabled')}</div>`;
+}
 function instrumentPicker(name, cur) {
   const ins = get('instruments', cur);
   return `<div class="field"><label for="f_${name}_search">${L('สินทรัพย์', 'Instrument')} <i class="req">*</i></label><div class="combo" data-combo="${name}"><span class="combo-ic">${insIcon(ins)}</span><input id="f_${name}_search" class="combo-input" autocomplete="off" value="${esc(ins?.symbol || '')}" placeholder="${L('ค้นหาสัญลักษณ์…', 'Search symbol…')}" data-combo-input="${name}"><input type="hidden" name="${name}" value="${esc(cur || '')}"><div class="combo-list" hidden></div></div></div>`;
 }
 function comboResults(q) {
   q = q.trim().toUpperCase(); const used = new Map(); state.trades.forEach(t => used.set(t.instrumentId, (used.get(t.instrumentId) || 0) + 1));
-  return state.instruments.filter(i => i.active !== false && (!q || i.symbol.includes(q) || String(i.name || '').toUpperCase().includes(q))).sort((a, b) => (q && a.symbol.startsWith(q) ? -1 : 0) - (q && b.symbol.startsWith(q) ? -1 : 0) || (used.get(b.id) || 0) - (used.get(a.id) || 0) || a.symbol.localeCompare(b.symbol)).slice(0, 40);
+  return state.instruments.filter(i => i.active !== false && (!q || i.symbol.includes(q) || (String(i.name || '') + ' ' + insName(i)).toUpperCase().includes(q))).sort((a, b) => (q && a.symbol.startsWith(q) ? -1 : 0) - (q && b.symbol.startsWith(q) ? -1 : 0) || (used.get(b.id) || 0) - (used.get(a.id) || 0) || a.symbol.localeCompare(b.symbol)).slice(0, 40);
 }
 function renderCombo(input) {
   const box = input.closest('.combo'), list = box.querySelector('.combo-list'), items = comboResults(input.value);
-  list.innerHTML = items.length ? items.map((i, k) => `<button type="button" class="combo-opt ${k === 0 ? 'act' : ''}" data-action="combo-pick" data-id="${i.id}">${insIcon(i)}<strong>${esc(i.symbol)}</strong><small>${esc(i.name || '')}</small></button>`).join('') : `<div class="combo-none">${L('ไม่พบ — เพิ่มได้ที่ ตั้งค่า → สินทรัพย์', 'Not found — add it in Instruments')}</div>`;
+  list.innerHTML = items.length ? items.map((i, k) => `<button type="button" class="combo-opt ${k === 0 ? 'act' : ''}" data-action="combo-pick" data-id="${i.id}">${insIcon(i)}<strong>${esc(i.symbol)}</strong><small>${esc(insName(i))}</small></button>`).join('') : `<div class="combo-none">${L('ไม่พบ — เพิ่มได้ที่ ตั้งค่า → สินทรัพย์', 'Not found — add it in Instruments')}</div>`;
   list.hidden = false;
 }
 function tagPicker(selected, highlight = []) {
   const sel = new Set(selected);
-  return `<div class="tagpick">${state.tagCategories.map(c => { const tags = state.tags.filter(t => t.categoryId === c.id && (t.active !== false || sel.has(t.id))); if (!tags.length) return ''; return `<div class="tagpick-g"><div class="tagpick-h"><i style="background:${esc(c.color || 'var(--accent)')}"></i>${esc(catName(c))}</div><div class="chips">${tags.map(t => `<button type="button" class="chip pick ${sel.has(t.id) ? 'on' : ''} ${c.id === 'cat_mistakes' ? 'mistake' : ''} ${highlight.includes(t.id) ? 'hl' : ''}" style="--c:${esc(c.color || 'var(--accent)')}" data-action="tag-toggle" data-id="${t.id}">${esc(t.name)}</button>`).join('')}</div></div>`; }).join('')}<button type="button" class="btn ghost sm" data-action="tag-quick-add">${icon('plus')} ${L('สร้างแท็กใหม่', 'New tag')}</button></div>`;
+  return `<div class="tagpick">${state.tagCategories.map(c => { const tags = state.tags.filter(t => t.categoryId === c.id && (t.active !== false || sel.has(t.id))); if (!tags.length) return ''; return `<div class="tagpick-g"><div class="tagpick-h"><i style="background:${esc(c.color || 'var(--accent)')}"></i>${esc(catName(c))}</div><div class="chips">${tags.map(t => `<button type="button" class="chip pick ${sel.has(t.id) ? 'on' : ''} ${c.id === 'cat_mistakes' ? 'mistake' : ''} ${highlight.includes(t.id) ? 'hl' : ''}" style="--c:${esc(c.color || 'var(--accent)')}" data-action="tag-toggle" data-id="${t.id}">${esc(tagName(t))}</button>`).join('')}</div></div>`; }).join('')}<button type="button" class="btn ghost sm" data-action="tag-quick-add">${icon('plus')} ${L('สร้างแท็กใหม่', 'New tag')}</button></div>`;
 }
-function catName(c) { return { cat_setups: L('Setups / รูปแบบ', 'Setups'), cat_mistakes: L('ความผิดพลาด', 'Mistakes'), cat_context: L('บริบทตลาด', 'Market context') }[c.id] || c.name; }
+/* built-in tag / category names are stored in English and shown in Thai when the UI is Thai (a renamed one shows as typed) */
+const TAG_TH = { 'Early Entry': 'เข้าเร็วเกินไป', 'Late Entry': 'เข้าช้าเกินไป', 'Early Exit': 'ออกเร็วเกินไป', 'Moved Stop': 'เลื่อน S/L', 'Oversized': 'ขนาดสัญญาใหญ่เกินไป', 'FOMO': 'FOMO (กลัวตกรถ)', 'No Setup / FOMO': 'FOMO (กลัวตกรถ)', 'Revenge Trade': 'เทรดแก้แค้น', 'Broke Rules': 'ทำผิดกฎ', 'Trending': 'ตลาดมีเทรนด์', 'Ranging': 'ตลาดไซด์เวย์', 'High Volatility': 'ผันผวนสูง', 'News Day': 'วันมีข่าว' };
+const CAT_TH = { 'Mistakes': 'ความผิดพลาด', 'Market Context': 'บริบทตลาด', 'Setups': 'รูปแบบ (Setups)' };
+function tagName(t) { const n = t?.name || ''; return LANG === 'th' && TAG_TH[n] || n; }
+function catName(c) { const n = c?.name || ''; return LANG === 'th' && CAT_TH[n] || n; }
 function emotionPicker(cur, action = 'emotion-pick') { return `<div class="emo">${EMOTIONS.map(([k, th]) => `<button type="button" class="${cur === k ? 'on' : ''}" data-action="${action}" data-value="${k}">${emoji(k)}<span>${esc(L(th, k))}</span></button>`).join('')}</div>`; }
-function kpi(label, val, sub = '', cls = '', tip = '') { return `<div class="kpi ${cls}"><div class="kpi-l" ${tip ? `data-tip="${esc(tip)}"` : ''}>${label}${tip ? ' ' + icon('info', 'tiny') : ''}</div><div class="kpi-v">${val}</div>${sub ? `<div class="kpi-s">${sub}</div>` : ''}</div>`; }
+function kpi(label, val, sub = '', cls = '', tip = '') { const g = !tip && glossKeyOf(label); return `<div class="kpi ${cls}"><div class="kpi-l" ${tip ? `data-tip="${esc(tip)}"` : ''}>${g ? gl(label, g) : label}${tip ? ' ' + icon('info', 'tiny') : ''}</div><div class="kpi-v">${val}</div>${sub ? `<div class="kpi-s">${sub}</div>` : ''}</div>`; }
 function progress(pct, cls = '') { return `<div class="progress ${cls}"><span style="width:${clamp(finite(pct) ? pct : 0, 0, 100)}%"></span></div>`; }
 
 /* ---------- editor tabs (trade / plan modals) ---------- */

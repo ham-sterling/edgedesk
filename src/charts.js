@@ -2,7 +2,10 @@
    CHARTS — dependency-free SVG, sized to container, hover layer
    ============================================================ */
 const chartSpecs = new Map(); let chartSeq = 0, chartRO = null;
-function chartBox(spec, height = 240) { const id = 'c' + (++chartSeq), h = Math.round((spec.height || height) * .88); chartSpecs.set(id, { ...spec, height: h }); return `<div class="chart" data-chart="${id}" style="height:${h}px"></div>`; }
+function chartBox(spec, height = 240) { const id = 'c' + (++chartSeq), h = Math.round((spec.height || height) * .88), u0 = ui.unit;
+  // formatters run later (drawing, tooltips) — pin them to the unit the chart was built with
+  const pinned = Object.fromEntries(Object.entries(spec).map(([k, v]) => [k, typeof v === 'function' ? (...a) => { const s = ui.unit; ui.unit = u0; try { return v(...a); } finally { ui.unit = s; } } : v]));
+  chartSpecs.set(id, { ...pinned, unit: spec.unit ?? u0, height: h }); return `<div class="chart" data-chart="${id}" style="height:${h}px"></div>`; }
 function niceTicks(min, max, count = 5) {
   if (!finite(min) || !finite(max)) return [0]; if (min === max) { const p = Math.abs(min) || 1; min -= p * .5; max += p * .5; }
   const span = max - min, step0 = span / Math.max(1, count), mag = 10 ** Math.floor(Math.log10(step0)), n = step0 / mag;
@@ -63,7 +66,7 @@ function drawLine(spec, W, H, el) {
   svg += `<line class="xhair" x1="0" x2="0" y1="${top}" y2="${H - bottom}" style="display:none"/>` + series.map((s, i) => `<circle class="hdot" data-s="${i}" r="4.5" style="display:none" fill="${s.color || 'var(--accent)'}"/>`).join('');
   el._layout = { kind: 'line', X, y, n, left, right, W, series, f: spec.tipFmt || (v => unitFmt(v, spec.unit === 'count' ? 'x' : spec.unit)), top, bottom, H };
   const legend = series.length > 1 ? `<div class="legend">${series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
-  return `${legend}<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || 'Chart')}">${svg}</svg>`;
+  return `${legend}<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟ', 'Chart'))}">${svg}</svg>`;
 }
 /* vertical bars */
 function drawBar(spec, W, H, el) {
@@ -83,7 +86,7 @@ function drawBar(spec, W, H, el) {
   else svg += xTicksSVG(data.map(d => d.x), X, H, bottom, Math.max(2, Math.floor((W - left) / 90)));
   svg += `<rect class="hband" x="0" y="${top}" width="${bw}" height="${H - top - bottom}" style="display:none"/>`;
   el._layout = { kind: 'bar', X, bw, left, data, f: spec.tipFmt || (v => unitFmt(v, spec.unit)), top, bottom, H };
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || 'Bar chart')}">${svg}</svg>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟแท่ง', 'Bar chart'))}">${svg}</svg>`;
 }
 /* horizontal bars (breakdowns) */
 function drawHBar(spec, W, H, el) {
@@ -96,10 +99,10 @@ function drawHBar(spec, W, H, el) {
   data.forEach((d, i) => {
     const cy = top + (i + .5) * rowH, w = Math.max(1.5, Math.abs(d.y) * scale), x = d.y >= 0 ? zx : zx - w, col = d.color || (spec.signed !== false ? (d.y >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)');
     const lbl = String(d.label), maxc = Math.floor((labW - 12) / 6.6);
-    svg += `<text class="hlab" x="${labW - 10}" y="${cy + 4}" text-anchor="end">${esc(lbl.length > maxc ? lbl.slice(0, maxc - 1) + '…' : lbl)}</text><rect class="bar" data-i="${i}" x="${x.toFixed(1)}" y="${(cy - barH / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${barH.toFixed(1)}" rx="3" fill="${col}"/><text class="hval ${tone(d.y)}" x="${W - 4}" y="${cy + 4}" text-anchor="end">${esc(f(d.y))}</text>`;
+    svg += `<text class="hlab" x="${spec.labelAlign === 'right' ? labW - 10 : 2}" y="${cy + 4}" text-anchor="${spec.labelAlign === 'right' ? 'end' : 'start'}">${esc(lbl.length > maxc ? lbl.slice(0, maxc - 1) + '…' : lbl)}</text><rect class="bar" data-i="${i}" x="${x.toFixed(1)}" y="${(cy - barH / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}"/><text class="hval ${tone(d.y)}" x="${W - 4}" y="${cy + 4}" text-anchor="end">${esc(f(d.y))}</text>`;
   });
   el._layout = { kind: 'hbar', rowH, top, data, f: spec.tipFmt || f };
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || 'Breakdown')}">${svg}</svg>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟแท่งแนวนอน', 'Breakdown'))}">${svg}</svg>`;
 }
 /* scatter */
 function drawScatter(spec, W, H, el) {
@@ -112,8 +115,8 @@ function drawScatter(spec, W, H, el) {
   /* session-clock style lanes: a labelled track per session above the plot, plus a faint column inside it */
   lanes.forEach((ln, i) => {
     const ly = 6 + i * laneH;
-    svg += `<text class="xlab lane-l" x="${left - 6}" y="${ly + 6}" text-anchor="end">${esc(ln.label)}</text><rect x="${left}" y="${ly}" width="${W - left - right}" height="6" rx="3" fill="var(--track)"/>`;
-    for (const [a, b] of ln.segs) { const x0 = X(Math.max(a, xlo)), x1 = X(Math.min(b, xhi)); if (x1 <= x0) continue; svg += `<rect x="${x0.toFixed(1)}" y="${ly}" width="${(x1 - x0).toFixed(1)}" height="6" rx="3" fill="${ln.color}"/><rect x="${x0.toFixed(1)}" y="${top}" width="${(x1 - x0).toFixed(1)}" height="${H - top - bottom}" fill="${ln.color}" opacity=".07"/>`; }
+    svg += `<text class="xlab lane-l" x="${left - 6}" y="${ly + 6}" text-anchor="end">${esc(ln.label)}</text><rect x="${left}" y="${ly}" width="${W - left - right}" height="6" fill="var(--track)"/>`;
+    for (const [a, b] of ln.segs) { const x0 = X(Math.max(a, xlo)), x1 = X(Math.min(b, xhi)); if (x1 <= x0) continue; svg += `<rect x="${x0.toFixed(1)}" y="${ly}" width="${(x1 - x0).toFixed(1)}" height="6" fill="${ln.color}"/><rect x="${x0.toFixed(1)}" y="${top}" width="${(x1 - x0).toFixed(1)}" height="${H - top - bottom}" fill="${ln.color}" opacity=".07"/>`; }
   });
   svg += gridSVG(ticks, y, left, right, W, f);
   const xt = (spec.xTicks || niceTicks(xlo, xhi, Math.max(2, Math.floor((W - left) / 80)))).filter(v => v >= xlo - EPS && v <= xhi + EPS);
@@ -121,7 +124,7 @@ function drawScatter(spec, W, H, el) {
   const r = data.length > 300 ? 3 : 4.5;
   data.forEach((d, i) => { svg += `<circle class="dot" data-i="${i}" cx="${X(d.x).toFixed(1)}" cy="${y(d.y).toFixed(1)}" r="${r}" fill="${d.y >= 0 ? 'var(--pos)' : 'var(--neg)'}"/>`; });
   el._layout = { kind: 'scatter', pts: data.map(d => [X(d.x), y(d.y)]), data, f: v => unitFmt(v, spec.unit), xFmt: spec.xFmt };
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || 'Scatter')}">${svg}</svg>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟกระจาย', 'Scatter'))}">${svg}</svg>`;
 }
 /* Monte Carlo percentile bands */
 function drawBand(spec, W, H, el) {
@@ -141,7 +144,7 @@ function drawBand(spec, W, H, el) {
 function drawHeatStrip() { return ''; }
 
 /* ---------- hover layer ---------- */
-function chartTip(html, x, y) { const t = $('#charttip'); if (!html) { t.style.display = 'none'; return; } t.innerHTML = html; t.style.display = 'block'; const r = t.getBoundingClientRect(); let left = x + 14, top = y - r.height - 10; if (left + r.width > innerWidth - 8) left = x - r.width - 14; if (top < 8) top = y + 16; t.style.left = left + 'px'; t.style.top = top + 'px'; }
+function chartTip(html, x, y) { const t = $('#charttip'); t.classList.remove('gloss'); delete t.dataset.key; if (!html) { t.style.display = 'none'; return; } t.innerHTML = html; t.style.display = 'block'; const r = t.getBoundingClientRect(); let left = x + 14, top = y - r.height - 10; if (left + r.width > innerWidth - 8) left = x - r.width - 14; if (top < 8) top = y + 16; left = Math.max(8, Math.min(left, innerWidth - r.width - 8)); t.style.left = left + 'px'; t.style.top = top + 'px'; }
 function onChartMove(e) {
   const el = e.target.closest?.('[data-chart]'); if (!el || !el._layout) { if (document.querySelector('#charttip')?.style.display === 'block' && !e.target.closest?.('[data-tip]')) chartTip(''); return; }
   const Lo = el._layout, svg = el.querySelector('svg'); if (!svg) return; const rect = svg.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -198,3 +201,28 @@ function radar(axes, size = 250) {
   svg += axes.map((a, i) => { const [x, y] = pt(i, 1.2); const anchor = Math.abs(x - c) < 8 ? 'middle' : x > c ? 'start' : 'end'; return `<text x="${x}" y="${y}" text-anchor="${anchor}" class="r-lab"><tspan x="${x}" dy="-2">${esc(a.label)}</tspan><tspan x="${x}" dy="13" class="r-val">${esc(a.show)}</tspan></text>`; }).join('');
   return `<svg viewBox="${-pad} -6 ${size + pad * 2} ${size + 12}" class="radar" role="img" aria-label="Edge score radar">${svg}</svg>`;
 }
+
+/* ============================================================
+   v3.54 — KPI cards with a mini chart (the dashboard's hero card, reused on Trades and Analytics)
+   ============================================================ */
+function miniCard(label, val, sub = '', viz = '', extra = '') {
+  const g = typeof label === 'string' && glossKeyOf(label);
+  return `<div class="card" ${extra}><div class="mc-t"><div class="l">${g ? gl(label, g) : label}</div><div class="v">${val}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div><div class="viz">${viz || ''}</div></div>`;
+}
+const miniRow = cards => `<div class="hero h${cards.length}">${cards.join('')}</div>`;
+const cumVals = (rows, u = ui.unit) => cumulativeSeries(rows, u).map(p => p.y);
+/* two-sided ratio bar with the two values underneath */
+function ratioViz(a, b, la, lb) {
+  const x = Math.abs(a || 0), y = Math.abs(b || 0), p = x + y ? x / (x + y) * 100 : 50;
+  return `<div><div class="ratio-bar"><span style="width:${p}%;background:var(--pos)"></span><span style="width:${100 - p}%;background:var(--neg)"></span></div><div class="ratio-vals"><span class="pos">${la}</span><span class="neg">${lb}</span></div></div>`;
+}
+/* tiny column chart (e.g. monthly results) */
+function miniBars(vals, w = 104, h = 44) {
+  const v = vals.map(x => finite(x) ? x : 0); if (!v.length) return '';
+  const lo = Math.min(0, ...v), hi = Math.max(0, ...v), span = (hi - lo) || 1, bw = Math.max(2, Math.min(12, (w - 4) / v.length - 2)), step = (w - 4) / v.length, Y = x => 2 + (hi - x) / span * (h - 4);
+  return `<svg class="spark mbars" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${w}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="var(--border2)" stroke-width="1"/>${v.map((x, i) => { const y0 = Y(Math.max(0, x)), y1 = Y(Math.min(0, x)); return `<rect x="${(2 + i * step + (step - bw) / 2).toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y1 - y0).toFixed(1)}" fill="${x >= 0 ? 'var(--pos)' : 'var(--neg)'}"/>`; }).join('')}</svg>`;
+}
+const pfViz = s => { const pct = finite(s.pfU) ? clamp(s.pfU / 3 * 100, 0, 100) : 0, cls = !finite(s.pfU) ? 'muted' : s.pfU >= 1.5 ? 'pos' : s.pfU >= 1 ? 'accent' : 'neg'; return arcGauge(pct, cls); };
+const pfWord = s => !finite(s.pfU) ? '' : s.pfU >= 1.5 ? L('แข็งแรง', 'Strong') : s.pfU >= 1 ? L('มีกำไร', 'Profitable') : L('ต้องปรับปรุง', 'Needs work');
+const expViz = s => { const pct = finite(s.expectancy) && finite(s.avgWinU) && finite(s.avgLossU) ? clamp((s.expectancy - s.avgLossU) / ((s.avgWinU - s.avgLossU) || 1) * 100, 0, 100) : 50, t = tone(s.expectancy); return arcGauge(pct, t === 'muted' ? 'muted' : t); };
+const pctViz = (pct, cls = 'accent') => arcGauge(pct, cls);
