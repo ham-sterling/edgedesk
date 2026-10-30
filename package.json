@@ -1,6 +1,6 @@
 {
   "name": "edgedesk",
-  "version": "3.47.0",
+  "version": "3.61.0",
   "private": true,
   "type": "module",
   "description": "EdgeDesk trading journal — Cloudflare Workers + D1 edition",
