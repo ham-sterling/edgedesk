@@ -27,19 +27,41 @@ function partialInfo(t) {
   return { ...s, realized: finite(rate) ? (s.vOut - s.vIn) * sign * rate * s.qOut : null };
 }
 function execRowHTML(e, i, dec) {
-  return `<div class="exec-row" data-exec-row="${i}"><select data-ex="kind" aria-label="kind"><option value="in" ${e.kind === 'in' ? 'selected' : ''}>${L('เข้า (เพิ่ม)', 'In (add)')}</option><option value="out" ${e.kind === 'out' ? 'selected' : ''}>${L('ออก (ปิด)', 'Out (reduce)')}</option></select><input type="datetime-local" data-ex="time" value="${esc(localInput(e.time))}" aria-label="time"><input type="number" step="any" data-ex="price" value="${esc(e.price ?? '')}" placeholder="${L('ราคา', 'Price')}" aria-label="price"><input type="number" step="any" data-ex="qty" value="${esc(e.qty ?? '')}" placeholder="${L('จำนวน', 'Quantity')}" aria-label="size">${ibtn('x', 'exec-del', L('ลบรายการ', 'Remove'), { 'data-i': i }, 'sm')}</div>`;
+  return `<div class="exec-row" data-exec-row="${i}"><select data-ex="kind" aria-label="kind"><option value="in" ${e.kind === 'in' ? 'selected' : ''}>${L('เข้า (เพิ่ม)', 'In (add)')}</option><option value="out" ${e.kind === 'out' ? 'selected' : ''}>${L('ออก (ปิด)', 'Out (reduce)')}</option></select><input type="datetime-local" data-ex="time" value="${esc(localInput(e.time, edZone()))}" aria-label="time"><input type="number" step="any" data-ex="price" value="${esc(e.price ?? '')}" placeholder="${L('ราคา', 'Price')}" aria-label="price"><input type="number" step="any" data-ex="qty" value="${esc(e.qty ?? '')}" placeholder="${L('จำนวน', 'Quantity')}" aria-label="size">${ibtn('x', 'exec-del', L('ลบรายการ', 'Remove'), { 'data-i': i }, 'sm')}</div>`;
 }
 function execBoxHTML() {
   const ex = editor.executions || [], dec = get('instruments', $('[name=instrumentId]')?.value || editor.record.instrumentId)?.decimals ?? 2;
-  return `<div class="exec-head small dim"><span>${L('ประเภท', 'Type')}</span><span>${L('วัน-เวลา', 'Time')}</span><span>${L('ราคา', 'Price')}</span><span>${L('จำนวน', 'Quantity')}</span><span></span></div>${ex.map((e, i) => execRowHTML(e, i, dec)).join('')}<div class="row gap8 mt8">${btn(icon('plus') + L(' เพิ่มการเข้า', ' Add entry'), 'exec-add', { 'data-kind': 'in' }, 'sm')}${btn(icon('plus') + L(' เพิ่มการออก (ปิดบางส่วน)', ' Add exit (partial)'), 'exec-add', { 'data-kind': 'out' }, 'sm')}</div><div id="exec-sum" class="mt8"></div>`;
+  return `<div class="exec-head small dim"><span>${L('ประเภท', 'Type')}</span><span>${L('วัน-เวลา', 'Time')}</span><span>${L('ราคา', 'Price')}</span><span>${L('จำนวน', 'Quantity')}</span><span></span></div>${ex.map((e, i) => execRowHTML(e, i, dec)).join('')}<div class="row gap8 mt8">${btn(icon('plus') + L(' เพิ่มการเข้า', ' Add entry'), 'exec-add', { 'data-kind': 'in' }, 'sm')}${btn(icon('plus') + L(' เพิ่มการออก (ปิดบางส่วน)', ' Add exit (partial)'), 'exec-add', { 'data-kind': 'out' }, 'sm')}</div><div class="exec-sum mt8"></div>`;
 }
 function readExecRows() {
-  return $$('[data-exec-row]').map((row, i) => ({ id: editor.executions[i]?.id || uid('ex'), kind: row.querySelector('[data-ex=kind]').value, time: toISO(row.querySelector('[data-ex=time]').value), price: num(row.querySelector('[data-ex=price]').value), qty: num(row.querySelector('[data-ex=qty]').value) }));
+  if (!$$('[data-exec-row]').length) return clone(editor.executions || []); // v3.75: the rows live in the Scale in / out dialog
+  return $$('[data-exec-row]').map((row, i) => ({ id: editor.executions[i]?.id || uid('ex'), kind: row.querySelector('[data-ex=kind]').value, time: toISO(row.querySelector('[data-ex=time]').value, edZone()), price: num(row.querySelector('[data-ex=price]').value), qty: num(row.querySelector('[data-ex=qty]').value) }));
 }
 function drawExecSummary(r) {
-  const el = $('#exec-sum'); if (!el || !editor?.execMode) return; const s = execSummary(r.executions || []), dec = get('instruments', r.instrumentId)?.decimals ?? 2, cur = get('accounts', r.accountId)?.currency;
+  const els = $$('.exec-sum'); if (!els.length || !editor?.execMode) return; const s = execSummary(r.executions || []), dec = get('instruments', r.instrumentId)?.decimals ?? 2, cur = get('accounts', r.accountId)?.currency;
   const p = r.status === 'Open' ? partialInfo(r) : null;
-  el.innerHTML = `<div class="notice ${s.over ? 'bad' : 'info'}">${icon(s.over ? 'alert' : 'layers')}<span>${L('เข้ารวม', 'In')} <b>${fmt(s.qIn, 2)}</b> @ <b>${s.vIn ? fmt(s.vIn, dec + 1) : '—'}</b> · ${L('ออกรวม', 'Out')} <b>${fmt(s.qOut, 2)}</b> @ <b>${s.vOut ? fmt(s.vOut, dec + 1) : '—'}</b> · ${L('คงเหลือ', 'Remaining')} <b>${fmt(Math.max(0, s.remaining), 2)}</b>${s.over ? ' — ' + L('ปิดมากกว่าที่เปิด', 'closed more than opened') : s.closed ? ' · <span class="pos">' + L('ปิดครบแล้ว', 'fully closed') + '</span>' : ''}${p && finite(p.realized) ? ` · ${L('กำไรที่ปิดไปแล้ว', 'Realized')} <b class="${tone(p.realized)}">${money(p.realized, cur, true)}</b>` : ''}</span></div>`;
+  const html = `<div class="notice ${s.over ? 'bad' : 'info'}">${icon(s.over ? 'alert' : 'layers')}<span>${L('เข้ารวม', 'In')} <b>${fmt(s.qIn, 2)}</b> @ <b>${s.vIn ? fmt(s.vIn, dec + 1) : '—'}</b> · ${L('ออกรวม', 'Out')} <b>${fmt(s.qOut, 2)}</b> @ <b>${s.vOut ? fmt(s.vOut, dec + 1) : '—'}</b> · ${L('คงเหลือ', 'Remaining')} <b>${fmt(Math.max(0, s.remaining), 2)}</b>${s.over ? ' — ' + L('ปิดมากกว่าที่เปิด', 'closed more than opened') : s.closed ? ' · <span class="pos">' + L('ปิดครบแล้ว', 'fully closed') + '</span>' : ''}${p && finite(p.realized) ? ` · ${L('กำไรที่ปิดไปแล้ว', 'Realized')} <b class="${tone(p.realized)}">${money(p.realized, cur, true)}</b>` : ''}</span></div>`; els.forEach(el => { el.innerHTML = html; });
+}
+/* v3.75 — Scale in / out opens in its own dialog so the rows get the full width; the editor shows a read-only summary */
+const EX_FIELDS = ['entryDateTime', 'entryPrice', 'quantity', 'exitDateTime', 'exitPrice'];
+function execHost() { return $('#exec-dlg') || $('#exec-box'); }
+function execMiniHTML() {
+  const ex = editor.executions || [], dec = get('instruments', $('[name=instrumentId]')?.value || editor.record.instrumentId)?.decimals ?? 2;
+  return `<div class="exec-mini">${ex.map(e => `<div class="exm-row"><span class="badge ${e.kind === 'in' ? 'pos' : 'neg'}">${e.kind === 'in' ? L('เข้า', 'In') : L('ออก', 'Out')}</span><span class="dim">${e.time ? esc(when(e.time)) : '—'}</span><b>${finite(e.price) ? fmt(e.price, dec) : '—'}</b><b>${finite(e.qty) ? fmt(e.qty, 2) : '—'}</b></div>`).join('')}</div><div class="exec-sum mt8"></div>${btn(icon('edit') + L(' แก้ไขการเข้า / ออก', ' Edit entries / exits'), 'exec-open', {}, 'sm mt8')}`;
+}
+function execOpen() {
+  const wasOn = !!editor.execMode;
+  window.__exBak = { on: wasOn, ex: clone(editor.executions || []), vals: Object.fromEntries(EX_FIELDS.map(n => [n, $(`#editor-form [name=${n}]`)?.value ?? ''])) };
+  if (!wasOn) setExecMode(true);
+  openModal({ title: L('เข้า / ออกหลายครั้ง', 'Scale in / out'), size: 'xl', center: true, cls: 'dlg exec-dlg', body: `<p class="help" style="margin-top:0">${L('ราคาเข้า ราคาออก และจำนวน จะคำนวณเป็นค่าเฉลี่ยถ่วงน้ำหนักจากรายการด้านล่าง', 'Entry price, exit price and quantity become the weighted averages of these rows')}</p><div id="exec-dlg" class="exec-box">${execBoxHTML()}</div>`, foot: `${wasOn ? btn(icon('trash') + L(' เลิกใช้การเข้า / ออกหลายครั้ง', ' Turn off scale in / out'), 'exec-off', {}, 'ghost danger') : ''}<div class="grow"></div>${btn(L('ยกเลิก', 'Cancel'), 'exec-cancel', {}, 'ghost')}${btn(icon('check') + L(' ใช้', ' Apply'), 'exec-apply', {}, 'primary')}`, onClose: () => { if (window.__exBak) execRestore(); } });
+  updateLive();
+}
+function execRestore() {
+  const b = window.__exBak; window.__exBak = null; if (!b || !editor) return;
+  editor.executions = b.ex;
+  if (!b.on) setExecMode(false); else $('#exec-box').innerHTML = execMiniHTML();
+  EX_FIELDS.forEach(n => { const i = $(`#editor-form [name=${n}]`); if (i) i.value = b.vals[n]; });
+  updateLive();
 }
 function setExecMode(on) {
   editor.execMode = on; const r = readTradeForm();
@@ -48,15 +70,19 @@ function setExecMode(on) {
     if (r.status === 'Closed' && r.exitPrice) editor.executions.push({ id: uid('ex'), kind: 'out', time: r.exitDateTime || now(), price: r.exitPrice, qty: r.quantity });
   }
   if (!on) editor.executions = [];
-  $('#exec-box').innerHTML = on ? execBoxHTML() : ''; $('#exec-box').hidden = !on;
+  $('#exec-box').innerHTML = on ? execMiniHTML() : ''; $('#exec-box').hidden = !on;
   ['entryDateTime', 'entryPrice', 'quantity', 'exitDateTime', 'exitPrice'].forEach(n => { const i = $(`#editor-form [name=${n}]`); if (i) { i.readOnly = on; i.classList.toggle('derived', on); } });
   $('#status-seg')?.classList.toggle('disabled', on);
+  { const b = $('.ed-execb'); if (b) { b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); } }
   updateLive();
 }
 const EXEC_ACTIONS = {
-  'exec-toggle': el => setExecMode(!editor.execMode),
-  'exec-add': el => { editor.executions = readExecRows(); const s = execSummary(editor.executions), last = editor.executions.at(-1); editor.executions.push({ id: uid('ex'), kind: el.dataset.kind, time: now(), price: last?.price ?? null, qty: el.dataset.kind === 'out' ? +(Math.max(0, s.remaining) || 0).toFixed(4) || null : null }); $('#exec-box').innerHTML = execBoxHTML(); updateLive(); },
-  'exec-del': el => { editor.executions = readExecRows(); editor.executions.splice(+el.dataset.i, 1); $('#exec-box').innerHTML = execBoxHTML(); updateLive(); }
+  'exec-toggle': () => execOpen(), 'exec-open': () => execOpen(),
+  'exec-apply': () => { editor.executions = readExecRows(); window.__exBak = null; closeModal(); if (!editor.executions.length) setExecMode(false); else { $('#exec-box').innerHTML = execMiniHTML(); updateLive(); } },
+  'exec-cancel': () => closeModal(),
+  'exec-off': () => { window.__exBak = null; closeModal(); setExecMode(false); },
+  'exec-add': el => { editor.executions = readExecRows(); const s = execSummary(editor.executions), last = editor.executions.at(-1); editor.executions.push({ id: uid('ex'), kind: el.dataset.kind, time: now(), price: last?.price ?? null, qty: el.dataset.kind === 'out' ? +(Math.max(0, s.remaining) || 0).toFixed(4) || null : null }); execHost().innerHTML = execBoxHTML(); updateLive(); },
+  'exec-del': el => { editor.executions = readExecRows(); editor.executions.splice(+el.dataset.i, 1); execHost().innerHTML = execBoxHTML(); updateLive(); }
 };
 function execDetailHTML(t) {
   if (!t.executions?.length) return '';

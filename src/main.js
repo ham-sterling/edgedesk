@@ -10,7 +10,7 @@ function fitSelect(el) {
   el.style.width = Math.ceil(c.measureText(txt).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) + 2) + 'px';
 }
 function fitTopSelects() { $$('.scopebar select, .unit-pick').forEach(fitSelect); }
-document.addEventListener('change', e => { if (e.target.matches?.('.scopebar select')) fitSelect(e.target); });
+document.addEventListener('change', e => { if (e.target.matches?.('.scopebar select, .ed-head .ed-acc select')) fitSelect(e.target); });
 document.fonts?.ready?.then(() => { try { fitTopSelects(); } catch { } });
 function render() {
   try {
@@ -27,13 +27,31 @@ function renderMain() {
 }
 async function changed(msg) { invalidate(); persist(); render(); if (drawerState?.kind === 'trade' && get('trades', drawerState.id)) tradeDetail(drawerState.id); else if (drawerState) closeDrawer(); if (msg) toast(msg); }
 function go(route) { if (location.hash.slice(1) === route) { ui.route = route; render(); } else location.hash = route; }
-function onRoute() { if (/^backtest(\/|$)/.test(decodeURIComponent(location.hash.slice(1)))) history.replaceState(null, '', '#dashboard'); ui.route = decodeURIComponent(location.hash.slice(1)) || 'dashboard'; if (ui.route === 'reports/overview') ui.route = 'reports'; { const alias = { 'reports/breakdown': 'reports/insights', 'reports/risk': 'reports/simulation' }[ui.route]; if (alias) { history.replaceState(null, '', '#' + alias); ui.route = alias; } } if (/^journal(\/|$)/.test(ui.route)) { const d = ui.route.split('/')[1]; history.replaceState(null, '', '#notes/journal' + (d ? '/' + d : '')); ui.route = 'notes/journal' + (d ? '/' + d : ''); } if (/^plans(\/|$)/.test(ui.route)) { history.replaceState(null, '', '#trades'); ui.route = 'trades'; } ui.page = 1; closeDrawer(); $('#shell')?.classList.remove('navopen'); wsOnRoute(ui.route); render(); wsRestoreScroll(); }
+function onRoute() { try { chartTip(''); } catch { }  if (/^backtest(\/|$)/.test(decodeURIComponent(location.hash.slice(1)))) history.replaceState(null, '', '#dashboard'); ui.route = decodeURIComponent(location.hash.slice(1)) || 'dashboard'; if (ui.route === 'reports/overview') ui.route = 'reports'; { const alias = { 'reports/breakdown': 'reports/insights', 'reports/risk': 'reports/simulation' }[ui.route]; if (alias) { history.replaceState(null, '', '#' + alias); ui.route = alias; } } if (/^journal(\/|$)/.test(ui.route)) { const d = ui.route.split('/')[1]; history.replaceState(null, '', '#notes/journal' + (d ? '/' + d : '')); ui.route = 'notes/journal' + (d ? '/' + d : ''); } if (/^plans(\/|$)/.test(ui.route)) { history.replaceState(null, '', '#trades'); ui.route = 'trades'; } ui.page = 1; closeDrawer(); $('#shell')?.classList.remove('navopen'); wsOnRoute(ui.route); render(); wsRestoreScroll(); }
 
 /* ---------- filters drawer ---------- */
+/* v3.72 — Filters panel: one column of sections split by lines, square / tile / pill pickers, Apply + Reset at the bottom */
 function openFilters() {
-  const f = ui.filters, sel = new Set(f.tags || []);
-  openModal({ title: icon('filter') + L(' ตัวกรองทั้งระบบ', ' Global filters'), size: 'lg', body: `<form id="filter-form" onsubmit="return false"><div class="formgrid c3">${field('instrumentId', L('สินทรัพย์', 'Instrument'), f.instrumentId, 'select', { html: entityOptions('instruments', f.instrumentId, L('ทั้งหมด', 'All'), i => state.trades.some(t => t.instrumentId === i.id)) })}${field('assetClass', L('ประเภทสินทรัพย์', 'Asset class'), f.assetClass, 'select', { options: ASSET_CLASSES.map(c => [c, L(ASSET_TH[c], c)]), empty: L('ทั้งหมด', 'All') })}${field('playbookId', L('กลยุทธ์', 'Strategy'), f.playbookId, 'select', { html: entityOptions('playbooks', f.playbookId, L('ทั้งหมด', 'All')) })}${field('side', L('ทิศทาง', 'Side'), f.side, 'select', { options: [['Buy', 'Long'], ['Sell', 'Short']], empty: L('ทั้งหมด', 'All') })}${field('status', L('สถานะ', 'Status'), f.status, 'select', { options: [['Closed', L('ปิดแล้ว', 'Closed')], ['Open', L('เปิดอยู่', 'Open')]], empty: L('ทั้งหมด', 'All') })}${field('session', L('เซสชัน', 'Session'), f.session, 'select', { options: ['Asia', 'London', 'London–NY', 'New York', 'After hours'].map(s => [s, sessionLabel(s)]), empty: L('ทั้งหมด', 'All') })}${field('weekday', L('วันในสัปดาห์', 'Weekday'), f.weekday, 'select', { options: [1, 2, 3, 4, 5, 6, 0].map(d => [d, dayName(d, true)]), empty: L('ทั้งหมด', 'All') })}${field('emotion', L('อารมณ์', 'Emotion'), f.emotion, 'select', { options: EMOTIONS.map(e => [e[0], L(e[1], e[0])]), empty: L('ทั้งหมด', 'All') })}${field('mistakes', L('ความผิดพลาด', 'Mistakes'), f.mistakes, 'select', { options: [['none', L('ไม่มีความผิดพลาด', 'Without mistakes')], ['any', L('มีความผิดพลาด', 'With mistakes')]], empty: L('ทั้งหมด', 'All') })}${field('reviewed', L('การรีวิว', 'Review'), f.reviewed, 'select', { options: [['yes', L('รีวิวแล้ว', 'Reviewed')], ['no', L('ยังไม่รีวิว', 'Not reviewed')]], empty: L('ทั้งหมด', 'All') })}<div class="field"><label>${L('ช่วง R', 'R range')}</label><div class="row gap4"><input name="minR" type="number" step="any" value="${esc(f.minR ?? '')}" placeholder="${L('ต่ำสุด', 'min')}"><input name="maxR" type="number" step="any" value="${esc(f.maxR ?? '')}" placeholder="${L('สูงสุด', 'max')}"></div></div></div>
-  <div class="sec mt24">${L('แท็ก', 'Tags')}</div><div class="row mb16">${seg([['any', L('มีอย่างน้อยหนึ่ง', 'Any')], ['all', L('มีทั้งหมด', 'All')]], f.tagMode || 'any', 'filter-tagmode')}</div><div id="filter-tags">${state.tagCategories.map(c => `<div class="tagpick-g mb16"><div class="tagpick-h"><i style="background:${esc(c.color)}"></i>${esc(catName(c))}</div><div class="chips">${state.tags.filter(t => t.categoryId === c.id).map(t => `<button type="button" class="chip pick ${sel.has(t.id) ? 'on' : ''}" style="--c:${esc(c.color)}" data-action="filter-tag" data-id="${t.id}">${esc(tagName(t))}</button>`).join('')}</div></div>`).join('')}</div></form>`, foot: `${btn(L('ล้างตัวกรอง', 'Reset'), 'filters-reset', {}, 'ghost')}<div class="grow"></div>${btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost')}${btn(L('ใช้ตัวกรอง', 'Apply'), 'filters-apply', {}, 'primary')}` });
+  const f = ui.filters, sel = new Set(f.tags || []), A = L('ทั้งหมด', 'All');
+  const hid = (n, v) => `<input type="hidden" name="${n}" value="${esc(v ?? '')}">`;
+  /* v3.73 — theme colours; one-row choices are segmented button groups (.seg), longer lists wrap as chips */
+  const pick = (name, items, cur, kind = 'seg') => hid(name, cur) + `<div class="${kind === 'seg' ? 'seg fseg' : 'fpick ' + kind}" role="group">${items.map(([v, l]) => `<button type="button" class="${String(v) === String(cur ?? '') ? 'on' : ''}" data-action="fopt" data-name="${name}" data-value="${esc(v)}">${l}</button>`).join('')}</div>`;
+  const sec = (t, body) => `<section class="fsec"><h4>${t}</h4>${body}</section>`;
+  const body = `<form id="filter-form" class="fpanel" onsubmit="return false" tabindex="-1" autofocus>
+    ${sec(L('สินทรัพย์', 'Instrument'), instrumentPicker('instrumentId', f.instrumentId, { all: L('ทุกสินทรัพย์', 'All instruments'), noLabel: true }))}
+    ${sec(L('ประเภทสินทรัพย์', 'Instrument type'), pick('assetClass', [['', A], ...ASSET_CLASSES.filter(c => state.instruments.some(i => i.assetClass === c && state.trades.some(t => t.instrumentId === i.id))).map(c => [c, L(ASSET_TH[c], c)])], f.assetClass, 'pill'))}
+    ${sec(L('กลยุทธ์', 'Strategy'), `<select name="playbookId" class="fsel">${entityOptions('playbooks', f.playbookId, A)}</select>`)}
+    ${sec(L('ทิศทาง', 'Side'), pick('side', [['', A], ['Buy', 'Long'], ['Sell', 'Short']], f.side))}
+    ${sec(L('สถานะ', 'Status'), pick('status', [['', A], ['Closed', L('ปิดแล้ว', 'Closed')], ['Open', L('เปิดอยู่', 'Open')]], f.status))}
+    ${sec(L('วันในสัปดาห์', 'Weekday'), pick('weekday', [['', A], ...[1, 2, 3, 4, 5, 6, 0].map(d => [d, dayName(d, true)])], f.weekday))}
+    ${sec(L('เซสชันการเทรด', 'Trading session'), pick('session', [['', A], ...['Asia', 'London', 'London–NY', 'New York', 'After hours'].map(x => [x, sessionLabel(x)])], f.session, 'pill'))}
+    ${sec(L('ความผิดพลาด', 'Mistakes'), pick('mistakes', [['', A], ['none', L('ไม่มี', 'Without')], ['any', L('มี', 'With')]], f.mistakes))}
+    ${sec(L('การรีวิว', 'Review'), pick('reviewed', [['', A], ['yes', L('รีวิวแล้ว', 'Reviewed')], ['no', L('ยังไม่รีวิว', 'Not reviewed')]], f.reviewed))}
+    ${sec(L('อารมณ์', 'Emotion'), `<select name="emotion" class="fsel">${opt('', A, f.emotion)}${EMOTIONS.map(e => opt(e[0], L(e[1], e[0]), f.emotion)).join('')}</select>`)}
+    ${sec(L('ช่วง R', 'R range'), `<div class="frange"><input name="minR" type="number" step="any" value="${esc(f.minR ?? '')}" placeholder="${L('ต่ำสุด', 'Min')}"><span>–</span><input name="maxR" type="number" step="any" value="${esc(f.maxR ?? '')}" placeholder="${L('สูงสุด', 'Max')}"></div>`)}
+    ${sec(L('แท็ก', 'Tags'), `<div class="mb12">${seg([['any', L('มีอย่างน้อยหนึ่ง', 'Any')], ['all', L('มีทั้งหมด', 'All')]], f.tagMode || 'any', 'filter-tagmode')}</div><div id="filter-tags">${state.tagCategories.map(c => `<div class="ftag-g"><div class="ftag-h"><i style="background:${esc(c.color)}"></i>${esc(catName(c))}</div><div class="fpick pill">${state.tags.filter(t => t.categoryId === c.id).map(t => `<button type="button" class="${sel.has(t.id) ? 'on' : ''}" data-action="filter-tag" data-id="${t.id}"><span>${esc(tagName(t))}</span></button>`).join('')}</div></div>`).join('')}</div>`)}
+  </form>`;
+  openModal({ title: L('ตัวกรอง', 'Filters'), cls: 'flt-sheet', body, foot: `${btn(L('ใช้ตัวกรอง', 'Apply'), 'filters-apply', {}, 'primary flt-apply')}<div class="grow"></div>${btn(L('รีเซ็ต', 'Reset'), 'filters-reset', {}, 'ghost flt-reset')}` });
   window.__ftags = new Set(f.tags || []); window.__ftagmode = f.tagMode || 'any';
 }
 function customRange() {
@@ -68,9 +86,10 @@ function palRun(i) { const x = palItems[i]; if (!x) return; closeModal(); const 
 function columnsDialog() {
   const all = COLS(), vis = ui.columns.filter(c => all[c]), hid = Object.keys(all).filter(k => !vis.includes(k));
   window.__cols = vis.slice();
-  const draw = () => `<p class="help" style="margin-top:0">${L('ติ๊กเพื่อแสดง ใช้ลูกศรเพื่อจัดลำดับ', 'Tick to show, use arrows to reorder')}</p><div class="col" style="gap:4px">${[...window.__cols, ...Object.keys(all).filter(k => !window.__cols.includes(k))].map(k => { const on = window.__cols.includes(k), i = window.__cols.indexOf(k); return `<div class="row" style="padding:4px 8px;border:1px solid var(--border);border-radius:8px"><label class="check grow" style="padding:2px 0"><input type="checkbox" data-change="col-toggle" data-k="${k}" ${on ? 'checked' : ''}><span class="box"></span><span>${esc(all[k])}</span></label>${on ? ibtn('chev-up', 'col-move', 'up', { 'data-k': k, 'data-d': -1, disabled: i === 0 }, 'sm') + ibtn('chev-down', 'col-move', 'down', { 'data-k': k, 'data-d': 1, disabled: i === window.__cols.length - 1 }, 'sm') : ''}</div>`; }).join('')}</div>`;
+  /* v3.74 — drag the grip to reorder (no up / down arrows); the hint lives in the title tooltip */
+  const draw = () => `<div class="col colpick" style="gap:4px">${[...window.__cols, ...Object.keys(all).filter(k => !window.__cols.includes(k))].map(k => { const on = window.__cols.includes(k); return `<div class="colrow ${on ? 'on' : ''}" data-k="${k}" ${on ? 'draggable="true"' : ''}><span class="colrow-grip" aria-hidden="true">${on ? icon('drag') : ''}</span><label class="check grow" style="padding:2px 0"><input type="checkbox" data-change="col-toggle" data-k="${k}" ${on ? 'checked' : ''}><span class="box"></span><span>${esc(all[k])}</span></label></div>`; }).join('')}</div>`;
   window.__drawCols = () => { const b = topModal()?.querySelector('.modal-b'); if (b) b.innerHTML = draw(); };
-  openModal({ title: icon('columns') + L(' คอลัมน์ตาราง', ' Table columns'), size: 'sm', body: draw(), foot: `${btn(L('ค่าเริ่มต้น', 'Reset'), 'cols-reset', {}, 'ghost')}<div class="grow"></div>${btn(L('ใช้', 'Apply'), 'cols-apply', {}, 'primary')}` });
+  openModal({ title: icon('columns') + L(' คอลัมน์ตาราง', ' Table columns') + ` <span class="info-tip" data-tip="${esc(L('ติ๊กเพื่อแสดง ลากเพื่อจัดลำดับ', 'Tick to show, drag to reorder'))}">${icon('info', 'tiny')}</span>`, size: 'sm', body: draw(), foot: `${btn(L('ค่าเริ่มต้น', 'Reset'), 'cols-reset', {}, 'ghost')}<div class="grow"></div>${btn(L('ใช้', 'Apply'), 'cols-apply', {}, 'primary')}` });
 }
 function bulkDialog(op) {
   const ids = [...ui.selected], rows = ids.map(id => get('trades', id)).filter(Boolean); if (!rows.length) return;
@@ -114,17 +133,20 @@ const A = {
   'close-drawer': () => closeDrawer(), 'close-drawer-bg': (el, e) => { if (e.target === el) closeDrawer(); },
   'save-trade': el => saveTrade(!!el.dataset.again), 'ed-size': riskSizeDialog, 'rsz-apply': () => { if (finite(window.__rsz)) { closeModal(); $('#f_quantity').value = +window.__rsz.toFixed(4); updateLive(); } },
   'ed-tf': el => { const h = $('#editor-form [name=timeframe]'), on = el.classList.contains('on'); el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', !on && b === el)); if (h) { h.value = on ? '' : el.dataset.value; h.dispatchEvent(new Event('input', { bubbles: true })); } },
+  'ed-col': el => el.closest('.ed-card')?.classList.toggle('collapsed'),
+  'ed-pick-ins': () => { const i = $('#f_instrumentId_search'); if (i) i.focus(); },
   'ed-side': el => { editor.side = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); updateLive(); },
   'ed-status': el => { editor.status = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); if (editor.status === 'Closed' && !$('#f_exitDateTime').value) $('#f_exitDateTime').value = localInput(now()); updateLive(); },
   'ed-rating': el => { editor.rating = editor.rating === +el.dataset.value ? 0 : +el.dataset.value; $('#ed-rating').innerHTML = stars(editor.rating, 'ed-rating'); },
   'ed-emotion': el => { editor.emotion = editor.emotion === el.dataset.value ? '' : el.dataset.value; $('#ed-emotion').innerHTML = emotionPicker(editor.emotion, 'ed-emotion'); },
-  'tag-toggle': el => { const id = el.dataset.id, i = editor.tags.indexOf(id); if (i >= 0) editor.tags.splice(i, 1); else editor.tags.push(id); el.classList.toggle('on', i < 0); },
+  'tag-toggle': el => { const id = el.dataset.id, i = editor.tags.indexOf(id); if (i >= 0) editor.tags.splice(i, 1); else editor.tags.push(id); const box = el.closest('#ed-tags'), tp = box?.querySelector('.tagdd'); if (box && tp) { const open = !!box.querySelector('.tagdd-pop:not([hidden])'), sc = box.querySelector('.tagdd-pop')?.scrollTop || 0; let hl = []; try { hl = JSON.parse(tp.dataset.hl || '[]'); } catch { } box.innerHTML = tagPicker(editor.tags, hl, open); const pop = box.querySelector('.tagdd-pop'); if (pop) pop.scrollTop = sc; } else el.classList.toggle('on', i < 0); },
+  'tagdd-open': el => { const tp = el.closest('.tagdd'), pop = tp?.querySelector('.tagdd-pop'); if (!pop) return; pop.hidden = !pop.hidden; el.classList.toggle('open', !pop.hidden); el.setAttribute('aria-expanded', String(!pop.hidden)); },
   'tag-quick-add': el => openTagEditor('', el.dataset.cat || ''),
-  'combo-pick': el => { const box = el.closest('.combo'), id = el.dataset.id, ins = get('instruments', id); box.querySelector('input[type=hidden]').value = id; box.querySelector('.combo-input').value = ins.symbol; box.querySelector('.combo-ic').innerHTML = insIcon(ins); box.querySelector('.combo-list').hidden = true; refreshForm(box); },
+  'combo-pick': el => { const box = el.closest('.combo'), id = el.dataset.id, ins = get('instruments', id); box.querySelector('input[type=hidden]').value = id; box.querySelector('.combo-input').value = ins?.symbol || ''; box.querySelector('.combo-ic').innerHTML = ins ? insIcon(ins) : icon('layers'); box.querySelector('.combo-list').hidden = true; refreshForm(box); },
   'lightbox': (el, e) => { if (e.target.closest('[data-action="shot-del"]')) return; lightbox(el.dataset.img); },
   'shot-del': async (el, e) => { e.stopPropagation(); const { img, kind, id } = el.dataset; if (kind === 'editor') { editor.images = editor.images.filter(x => x !== img); $('#editor-shots').innerHTML = shotsHTML(editor.images, 'editor', 'x'); hydrateShots($('#editor-shots')); return; } const r = get(kind, id); if (!r) return; r.images = (r.images || []).filter(x => x !== img); await deleteImage(img); persist(); refreshShots(kind, id); },
   'quick-rating': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.rating = t.rating === +el.dataset.value ? null : +el.dataset.value; t.updatedAt = now(); persist(); el.closest('.stars').outerHTML = stars(t.rating, 'quick-rating').replace('class="stars input"', `class="stars input" data-id="${id}"`); },
-  'quick-emotion': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.emotion = t.emotion === el.dataset.value ? '' : el.dataset.value; t.updatedAt = now(); persist(); el.closest('.emo').outerHTML = emotionPicker(t.emotion, 'quick-emotion').replace('class="emo"', `class="emo" data-id="${id}"`); },
+  'quick-emotion': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.emotion = t.emotion === el.dataset.value ? '' : el.dataset.value; t.updatedAt = now(); persist(); el.closest('.emo').outerHTML = emotionPicker(t.emotion, 'quick-emotion').replace('<div class="emo', `<div data-id="${id}" class="one-row emo`); },
   'eq-mode': el => { ui.eqMode = el.dataset.value; renderMain(); },
   'cal-month': el => { let m = ui.month + +el.dataset.dir, y = ui.year; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } ui.month = m; ui.year = y; renderMain(); },
   'cal-today': () => { const t = new Date(); ui.month = t.getMonth(); ui.year = t.getFullYear(); renderMain(); },
@@ -159,6 +181,7 @@ const A = {
   // filters
   'filter-tag': el => { const s = window.__ftags; s.has(el.dataset.id) ? s.delete(el.dataset.id) : s.add(el.dataset.id); el.classList.toggle('on'); },
   'filter-tagmode': el => { window.__ftagmode = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); },
+  'fopt': el => { const f = el.closest('form'), h = f?.querySelector(`input[type=hidden][name="${el.dataset.name}"]`); if (!h) return; h.value = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); if (el.dataset.name === 'side') { const p = el.closest('.fsec').querySelector('.fhelp'); if (p) p.textContent = el.dataset.value === 'Buy' ? L('เฉพาะเทรดฝั่งซื้อ', 'Buy trades only') : el.dataset.value === 'Sell' ? L('เฉพาะเทรดฝั่งขาย', 'Sell trades only') : L('ทั้งฝั่งซื้อและขาย', 'Both buys and sells'); } },
   'filters-apply': () => { const d = formData($('#filter-form')); ui.filters = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== '' && v != null)); ui.filters.tags = [...window.__ftags]; ui.filters.tagMode = window.__ftagmode; ui.page = 1; closeModal(); savePrefs(); render(); },
   'filters-reset': () => { ui.filters = {}; closeModal(); render(); },
   'range-apply': () => { ui.from = $('#f_rfrom').value; ui.to = $('#f_rto').value; ui.preset = ui.from || ui.to ? 'custom' : 'all'; closeModal(); savePrefs(); render(); },
@@ -170,10 +193,10 @@ const A = {
   'pb-view': el => { ui.playbookView = el.dataset.value; savePrefs(); renderMain(); },
   'pb-tab': el => go(el.dataset.value === 'overview' ? 'playbooks/' + el.dataset.id : `playbooks/${el.dataset.id}/${el.dataset.value}`),
   'pb-trades': el => { ui.filters = { playbookId: el.dataset.id }; go('trades'); },
-  'rule-group-add': () => { editor.rules.push({ id: uid('rg'), name: '', items: [{ id: uid('r'), label: '' }] }); $('#rule-builder').innerHTML = rulesBuilder(); },
-  'rule-group-del': el => { editor.rules.splice(+el.dataset.g, 1); $('#rule-builder').innerHTML = rulesBuilder(); },
-  'rule-add': el => { editor.rules[+el.dataset.g].items.push({ id: uid('r'), label: '' }); $('#rule-builder').innerHTML = rulesBuilder(); $$(`[data-rule-item^="${el.dataset.g}:"]`).at(-1)?.focus(); },
-  'rule-del': el => { editor.rules[+el.dataset.g].items.splice(+el.dataset.i, 1); $('#rule-builder').innerHTML = rulesBuilder(); },
+  'rule-group-add': () => { const c = ruleCtx(); c.rules.push({ id: uid('rg'), name: '', items: [{ id: uid('r'), label: '' }] }); $('#rule-builder').innerHTML = rulesBuilder(); $$('[data-rule-group]').at(-1)?.focus(); saveInlineRules(); },
+  'rule-group-del': el => { ruleCtx().rules.splice(+el.dataset.g, 1); $('#rule-builder').innerHTML = rulesBuilder(); saveInlineRules(); },
+  'rule-add': el => { ruleCtx().rules[+el.dataset.g].items.push({ id: uid('r'), label: '' }); $('#rule-builder').innerHTML = rulesBuilder(); $$(`[data-rule-item^="${el.dataset.g}:"]`).at(-1)?.focus(); saveInlineRules(); },
+  'rule-del': el => { ruleCtx().rules[+el.dataset.g].items.splice(+el.dataset.i, 1); $('#rule-builder').innerHTML = rulesBuilder(); saveInlineRules(); },
   // notes
   'folder-new': () => promptDialog(L('โฟลเดอร์ใหม่', 'New folder'), L('ชื่อโฟลเดอร์', 'Folder name'), '', n => { if (!n?.trim()) return; state.notebookFolders.push({ id: uid('nbf'), name: n.trim(), createdAt: now() }); changed(); }),
   'folder-rename': el => { const f = get('notebookFolders', el.dataset.id); promptDialog(L('เปลี่ยนชื่อโฟลเดอร์', 'Rename folder'), L('ชื่อโฟลเดอร์', 'Folder name'), f.name, n => { if (!n?.trim()) return; f.name = n.trim(); changed(); }); },
@@ -213,7 +236,7 @@ const A = {
   'del-instrument': el => { const id = el.dataset.id; if (state.trades.some(t => t.instrumentId === id) || false) { toast(L('มีเทรดที่ใช้สินทรัพย์นี้ — ปิดการใช้งานแทน', 'In use — deactivate instead'), 'bad'); return; } confirmDialog(L('ลบสินทรัพย์?', 'Delete instrument?'), '', async () => { state.instruments = state.instruments.filter(i => i.id !== id); closeModal(true); await changed(L('ลบแล้ว', 'Deleted')); }, L('ลบ', 'Delete')); },
   'new-category': () => openCategoryEditor(), 'edit-category': el => openCategoryEditor(el.dataset.id),
   'save-category': async () => { const f = $('#cat-form'), d = formData(f); if (!d.name?.trim()) return toast(L('ใส่ชื่อ', 'Name required'), 'bad'); const ex = get('tagCategories', f.dataset.id); if (ex) Object.assign(ex, { name: d.name.trim(), color: d.color }); else state.tagCategories.push({ id: f.dataset.id, name: d.name.trim(), color: d.color }); closeModal(); await changed(L('บันทึกแล้ว', 'Saved')); },
-  'del-category': el => { const id = el.dataset.id; if (state.tags.some(t => t.categoryId === id)) return toast(L('ย้ายหรือลบแท็กในหมวดนี้ก่อน', 'Move or delete its tags first'), 'bad'); state.tagCategories = state.tagCategories.filter(c => c.id !== id); closeModal(); changed(L('ลบแล้ว', 'Deleted')); },
+  'del-category': el => { const id = el.dataset.id, c = get('tagCategories', id); if (!c || c.core) return; if (state.tags.some(t => t.categoryId === id)) return toast(L('ย้ายหรือลบแท็กในหมวดนี้ก่อน', 'Move or delete its tags first'), 'bad'); confirmDialog(L('ลบหมวด?', 'Delete category?'), L(`ลบหมวด "${esc(catName(c))}"`, `Delete the "${esc(catName(c))}" category`), async () => { state.tagCategories = state.tagCategories.filter(x => x.id !== id); closeModal(true); await changed(L('ลบหมวดแล้ว', 'Category deleted')); }, L('ลบ', 'Delete')); },
   'edit-tag': el => openTagEditor(el.dataset.id), 'save-tag': saveTag,
   'del-tag': el => { const id = el.dataset.id, n = state.trades.filter(t => t.tags?.includes(id)).length; confirmDialog(L('ลบแท็ก?', 'Delete tag?'), n ? L(`จะถูกลบออกจาก ${n} เทรด — ปิดใช้งานแทนได้หากต้องการเก็บประวัติ`, `Removes it from ${n} trades — deactivate to keep history`) : '', async () => { state.tags = state.tags.filter(t => t.id !== id); for (const k of ['trades', 'plans']) state[k].forEach(t => t.tags = (t.tags || []).filter(x => x !== id)); state.playbooks.forEach(p => p.relevantTagIds = (p.relevantTagIds || []).filter(x => x !== id)); closeModal(true); await changed(L('ลบแท็กแล้ว', 'Tag deleted')); }, L('ลบ', 'Delete')); },
 };
@@ -250,6 +273,7 @@ function wire() {
   document.addEventListener('input', e => {
     const t = e.target;
     if (iconFieldInput(t)) return;
+    if (t.closest?.('#exec-dlg') && editor) { updateLive(); return; } // v3.75: Scale in / out dialog previews live
     if (t.dataset.ui && ['search', 'noteSearch', 'insSearch'].includes(t.dataset.ui)) { ui[t.dataset.ui] = t.value; ui.page = 1; debouncedMain(t); return; }
     if (t.matches('[data-combo-input]')) { renderCombo(t); return; }
     if (t.closest('#editor-form')) { if (t.name === 'commission' && editor) editor.commTouched = true; updateLive(); return; }
@@ -258,8 +282,8 @@ function wire() {
     if (t.closest('#ins-form')) { insFormInput(t); return; }
     if (t.id === 'note-title' || t.closest('#note-rich')) { saveNote(); return; }
     if (t.id === 'pal-q') { palSearch(t.value); return; }
-    if (t.dataset.ruleGroup != null) { editor.rules[+t.dataset.ruleGroup].name = t.value; return; }
-    if (t.dataset.ruleItem) { const [g, i] = t.dataset.ruleItem.split(':').map(Number); editor.rules[g].items[i].label = t.value; return; }
+    if (t.dataset.ruleGroup != null) { ruleCtx().rules[+t.dataset.ruleGroup].name = t.value; saveInlineRules(); return; }
+    if (t.dataset.ruleItem) { const [g, i] = t.dataset.ruleItem.split(':').map(Number); ruleCtx().rules[g].items[i].label = t.value; saveInlineRules(); return; }
   });
   document.addEventListener('change', e => {
     const t = e.target;
@@ -272,6 +296,7 @@ function wire() {
     if (t.dataset.chartUnit) { ui.chartUnits = { ...(ui.chartUnits || {}), [t.dataset.chartUnit]: t.value }; savePrefs(); renderMain(); return; }
     if (t.dataset.change === 'pb-active') { const pb = get('playbooks', t.dataset.id); if (pb) { pb.status = t.checked ? 'Active' : 'Inactive'; pb.updatedAt = now(); changed(t.checked ? L(`เปิดใช้ ${pb.name} แล้ว`, `${pb.name} active`) : L(`ปิด ${pb.name} แล้ว`, `${pb.name} inactive`)); } return; }
     if (t.dataset.change === 'ins-active') { const i = get('instruments', t.dataset.id); if (i) { i.active = t.checked; i.updatedAt = now(); changed(t.checked ? L(`เปิดใช้ ${i.symbol} แล้ว`, `${i.symbol} on`) : L(`ปิด ${i.symbol} แล้ว — ซ่อนจากตัวเลือก`, `${i.symbol} off — hidden from pickers`)); } return; }
+    if (t.dataset.change === 'tag-active') { const g = get('tags', t.dataset.id); if (g) { g.active = t.checked; changed(t.checked ? L(`เปิดใช้แท็ก ${g.name} แล้ว`, `${g.name} on`) : L(`ปิดแท็ก ${g.name} แล้ว`, `${g.name} off`)); } return; }
     if (t.dataset.change === 'exec-toggle') { setExecMode(t.checked); return; }
     if (t.dataset.change === 'bd-hide') { ui.bdHideSmall = t.checked; savePrefs(); renderMain(); return; }
     if (t.dataset.change === 'cross-hide') { ui.crossHideSmall = t.checked; savePrefs(); renderMain(); return; }
@@ -299,8 +324,9 @@ function wire() {
     if (e.key === 'g') { wire.g = true; setTimeout(() => wire.g = false, 900); return; }
     if (e.key === 'n') { e.preventDefault(); openTradeEditor(); } else if (e.key === 'j') go('notes/journal/' + todayKey()); else if (e.key === 'c') { e.preventDefault(); sizeCalculator(); } else if (e.key === '/') { const s = $('[data-ui="search"]'); if (s) { e.preventDefault(); s.focus(); } else { e.preventDefault(); openPalette(); } }
   });
-  document.addEventListener('focusin', e => { if (e.target.matches?.('[data-combo-input]')) { e.target.select(); renderCombo(e.target); } });
-  document.addEventListener('mousemove', e => { const gEl = e.target.closest?.('[data-gloss]'); if (gEl) { showGloss(gEl); return; } hideGloss(); onChartMove(e); const tip = e.target.closest?.('[data-tip]'); if (tip && !e.target.closest('[data-chart]')) { const txt = tip.dataset.tip; chartTip(esc(txt).replace(/\n/g, '<br>'), e.clientX, e.clientY); } else if (!e.target.closest?.('[data-chart]')) chartTip(''); });
+  document.addEventListener('focusin', e => { if (e.target.matches?.('[data-combo-input]')) { if (e.target.closest('.ed-head')) { e.target.dataset.was = e.target.value; e.target.value = ''; } else e.target.select(); renderCombo(e.target); } }); // v3.71: trade editor header — no highlighted text, show the whole list
+  document.addEventListener('focusout', e => { const t = e.target; if (t.matches?.('.ed-head [data-combo-input]')) setTimeout(() => { if (document.activeElement !== t && !t.value.trim()) { const h = t.closest('.combo')?.querySelector('input[type=hidden]'); t.value = nameOf('instruments', h?.value, 'symbol') || t.dataset.was || ''; } }, 180); });
+  document.addEventListener('mousemove', e => { const gEl = e.target.closest?.('[data-gloss]'); if (gEl) { showGloss(gEl); return; } hideGloss(); onChartMove(e); const tip = e.target.closest?.('[data-tip]'); if (tip && !e.target.closest('[data-chart]')) { const txt = tip.dataset.tip; chartTip(esc(txt).replace(/\n/g, '<br>'), e.clientX, e.clientY); } else if (!e.target.closest?.('[data-chart], .dn-fig .dseg')) chartTip(''); });
   document.addEventListener('focusin', e => { const g = e.target.closest?.('[data-gloss]'); if (g) showGloss(g); });
   document.addEventListener('focusout', e => { if (e.target.closest?.('[data-gloss]')) hideGloss(); });
   document.addEventListener('scroll', () => { const a = document.activeElement?.closest?.('[data-gloss]'); if (a) showGloss(a); else hideGloss(); }, true);

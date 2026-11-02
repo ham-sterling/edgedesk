@@ -38,69 +38,79 @@ function xTicksSVG(xs, X, H, bottom, maxTicks) {
   if (!xs.length) return ''; const n = Math.min(maxTicks, xs.length), idx = n <= 1 ? [0] : [...new Set(Array.from({ length: n }, (_, i) => Math.round(i * (xs.length - 1) / (n - 1))))];
   return idx.map((i, k) => `<text class="xlab" x="${X(i).toFixed(1)}" y="${H - bottom + 17}" text-anchor="${n > 1 && k === 0 ? 'start' : n > 1 && k === idx.length - 1 ? 'end' : 'middle'}">${esc(xLabel(xs[i]))}</text>`).join('');
 }
-/* line / area */
+/* v3.69 — y-axis title per unit (Element-style charts) */
+function axisTitle(u) { return u === 'P&L' ? `P&L (${currencySymbol(baseCurrency()) || baseCurrency()})` : u === 'R' ? 'R-Multiple' : u === '%' ? L('% เปลี่ยนแปลง', 'Change %') : u === 'Pips' ? L('ปิ๊บ', 'Pips') : u === 'Points' ? L('จุด', 'Points') : u === 'count' ? L('เทรด', 'Trades') : ''; }
+const yTitleSVG = (t, H, top, bottom) => t ? `<text class="ytitle" transform="translate(11 ${((top + H - bottom) / 2).toFixed(1)}) rotate(-90)" text-anchor="middle">${esc(t)}</text>` : '';
+/* line / area — v3.69: Element chart style: tight y scale, framed axes with ticks, x & y guides, point markers, flat translucent fill */
 function drawLine(spec, W, H, el) {
   const series = spec.series.filter(s => s.data?.length); if (!series.length) return emptyChart(spec.empty);
   if (series.length > 1) { let rows = 1, x = 0; for (const sr of series) { const w = String(sr.name).length * 7 + 30; if (x + w > W && x > 0) { rows++; x = 0; } x += w; } H = Math.max(140, H - rows * 24); } // keep the legend inside the box
   const f = axisFmt(spec.unit), all = series.flatMap(s => s.data.map(p => p.y)).filter(finite);
-  const top = 12, bottom = 26, { y, ticks } = yScaleFor(all, H, top, bottom, spec.zero !== false), left = leftPad(ticks, f), right = 12;
+  const yt = spec.yTitle === false || W < 360 ? '' : (spec.yTitle || axisTitle(spec.unit));
+  const top = 14, bottom = 28, { y, ticks } = yScaleFor(all, H, top, bottom, spec.zero === true), left = leftPad(ticks, f) + 4 + (yt ? 16 : 0), right = 14, yB = H - bottom;
   const n = Math.max(...series.map(s => s.data.length)), X = i => left + (n === 1 ? (W - left - right) / 2 : i / (n - 1) * (W - left - right));
-  let svg = gridSVG(ticks, y, left, right, W, f);
-  const z = clamp(y(0), top, H - bottom), gid = 'g' + el.dataset.chart;
+  const nx = Math.max(2, Math.floor((W - left) / 90)), xs = series[0].data.map(p => p.x), xi = xs.length <= 1 ? [0] : [...new Set(Array.from({ length: Math.min(nx, xs.length) }, (_, k, a) => Math.round(k * (xs.length - 1) / Math.max(1, Math.min(nx, xs.length) - 1))))];
+  let svg = ticks.map(t => `<line class="grid${Math.abs(t) < EPS ? ' zero' : ''}" x1="${left}" x2="${W - right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><line class="axis" x1="${left - 5}" x2="${left}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><text class="ylab" x="${left - 9}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(f(t))}</text>`).join('');
+  svg += xi.map(i => `<line class="vgrid" x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${top}" y2="${yB}"/><line class="axis" x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${yB}" y2="${yB + 4}"/>`).join('') + yTitleSVG(yt, H, top, bottom);
+  const z = clamp(y(0), top, yB), gid = 'g' + el.dataset.chart, dots = n <= 60;
   series.forEach((s, si) => {
     const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('');
     const col = s.color || 'var(--accent)';
-    if (s.area || spec.signed) {
+    if (spec.signed) {
       const area = d + `L${pts[pts.length - 1][0].toFixed(1)},${z.toFixed(1)}L${pts[0][0].toFixed(1)},${z.toFixed(1)}Z`;
-      if (spec.signed) {
-        svg += `<defs><clipPath id="${gid}a${si}"><rect x="0" y="0" width="${W}" height="${z}"/></clipPath><clipPath id="${gid}b${si}"><rect x="0" y="${z}" width="${W}" height="${H}"/></clipPath><linearGradient id="${gid}p" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--pos)" stop-opacity=".28"/><stop offset="1" stop-color="var(--pos)" stop-opacity="0"/></linearGradient><linearGradient id="${gid}n" x1="0" x2="0" y1="1" y2="0"><stop offset="0" stop-color="var(--neg)" stop-opacity=".28"/><stop offset="1" stop-color="var(--neg)" stop-opacity="0"/></linearGradient></defs>`;
-        svg += `<path d="${area}" fill="url(#${gid}p)" clip-path="url(#${gid}a${si})"/><path d="${area}" fill="url(#${gid}n)" clip-path="url(#${gid}b${si})"/>`;
-        svg += `<path d="${d}" class="ln" stroke="var(--pos)" clip-path="url(#${gid}a${si})"/><path d="${d}" class="ln" stroke="var(--neg)" clip-path="url(#${gid}b${si})"/>`;
-      } else {
-        svg += `<defs><linearGradient id="${gid}f${si}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="${s.fillOpacity ?? .22}"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#${gid}f${si})"/><path d="${d}" class="ln" stroke="${col}"/>`;
-      }
-    } else svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `stroke-width="${s.width}"` : ''}/>`;
-    if (s.endDot !== false && pts.length) { const p = pts[pts.length - 1]; svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" class="enddot" fill="${spec.signed ? (s.data[s.data.length - 1].y >= 0 ? 'var(--pos)' : 'var(--neg)') : col}"/>`; }
+      svg += `<defs><clipPath id="${gid}a${si}"><rect x="0" y="0" width="${W}" height="${z}"/></clipPath><clipPath id="${gid}b${si}"><rect x="0" y="${z}" width="${W}" height="${H}"/></clipPath></defs>`;
+      svg += `<path d="${area}" fill="var(--pos)" fill-opacity=".18" clip-path="url(#${gid}a${si})"/><path d="${area}" fill="var(--neg)" fill-opacity=".18" clip-path="url(#${gid}b${si})"/>`;
+      svg += `<path d="${d}" class="ln" stroke="var(--pos)" clip-path="url(#${gid}a${si})"/><path d="${d}" class="ln" stroke="var(--neg)" clip-path="url(#${gid}b${si})"/>`;
+      if (dots) svg += pts.map((p, i) => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${s.data[i].y >= 0 ? 'var(--pos)' : 'var(--neg)'}"/>`).join('');
+    } else {
+      if (s.area) { const base = s.color === 'var(--neg)' || spec.fillTo === 'zero' ? z : yB, area = d + `L${pts[pts.length - 1][0].toFixed(1)},${base.toFixed(1)}L${pts[0][0].toFixed(1)},${base.toFixed(1)}Z`; svg += `<path d="${area}" fill="${col}" fill-opacity="${s.fillOpacity ?? .2}"/>`; }
+      svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `stroke-width="${s.width}"` : ''}/>`;
+      if (dots && s.dots !== false && !s.dash) svg += pts.map(p => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${col}"/>`).join('');
+    }
+    if (!dots && s.endDot !== false && pts.length) { const p = pts[pts.length - 1]; svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" class="enddot" fill="${spec.signed ? (s.data[s.data.length - 1].y >= 0 ? 'var(--pos)' : 'var(--neg)') : col}"/>`; }
   });
-  svg += xTicksSVG(series[0].data.map(p => p.x), X, H, bottom, Math.max(2, Math.floor((W - left) / 90)));
-  svg += `<line class="xhair" x1="0" x2="0" y1="${top}" y2="${H - bottom}" style="display:none"/>` + series.map((s, i) => `<circle class="hdot" data-s="${i}" r="4.5" style="display:none" fill="${s.color || 'var(--accent)'}"/>`).join('');
+  svg += `<line class="axis" x1="${left}" x2="${left}" y1="${top}" y2="${yB}"/><line class="axis" x1="${left}" x2="${W - right}" y1="${yB}" y2="${yB}"/>`;
+  svg += xi.map((i, k) => `<text class="xlab" x="${X(i).toFixed(1)}" y="${yB + 17}" text-anchor="${xi.length > 1 && k === 0 ? 'start' : xi.length > 1 && k === xi.length - 1 ? 'end' : 'middle'}">${esc(xLabel(xs[i]))}</text>`).join('');
+  svg += `<line class="xhair" x1="0" x2="0" y1="${top}" y2="${yB}" style="display:none"/>` + series.map((s, i) => `<circle class="hdot" data-s="${i}" r="4.5" style="display:none" fill="${s.color || 'var(--accent)'}"/>`).join('');
   el._layout = { kind: 'line', X, y, n, left, right, W, series, f: spec.tipFmt || (v => unitFmt(v, spec.unit === 'count' ? 'x' : spec.unit)), top, bottom, H };
-  const legend = series.length > 1 ? `<div class="legend">${series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
+  const legend = series.length > 1 ? `<div class="legend">${series.map(s => `<span><i style="background:${s.color || 'var(--accent)'}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
   return `${legend}<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟ', 'Chart'))}">${svg}</svg>`;
 }
-/* vertical bars */
+/* v3.68 — vertical bars on a framed scale: y axis with tick marks, x axis line, faint column guides, wide square bars */
 function drawBar(spec, W, H, el) {
   const data = spec.data || []; if (!data.length) return emptyChart(spec.empty);
-  const f = axisFmt(spec.unit), top = 12, bottom = 26, { y, ticks } = yScaleFor(data.map(d => d.y), H, top, bottom, true), left = leftPad(ticks, f), right = 10;
-  const bw = (W - left - right) / data.length, barW = clamp(bw * (spec.thin ? .5 : .68), 1.5, 36), X = i => left + (i + .5) * bw, z = y(0);
-  let svg = gridSVG(ticks, y, left, right, W, f);
+  const f = axisFmt(spec.unit), yt = spec.yTitle === false || W < 360 ? '' : (spec.yTitle || axisTitle(spec.unit)), top = 14, hasIc = data.some(d => d.icon), bottom = hasIc ? 52 : 28, { y, ticks } = yScaleFor(data.map(d => d.y), H, top, bottom, true), left = leftPad(ticks, f) + 4 + (yt ? 16 : 0), right = 12;
+  const bw = (W - left - right) / data.length, barW = clamp(bw * (spec.thin ? .45 : .62), 2, 64), X = i => left + (i + .5) * bw, z = y(0), yB = H - bottom;
+  let svg = ticks.map(t => `<line class="grid${Math.abs(t) < EPS ? ' zero' : ''}" x1="${left}" x2="${W - right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><line class="axis" x1="${left - 5}" x2="${left}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><text class="ylab" x="${left - 9}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(f(t))}</text>`).join('');
+  svg += yTitleSVG(yt, H, top, bottom);
+  if (spec.categorical && data.length <= 40) for (let i = 1; i < data.length; i++) svg += `<line class="vgrid" x1="${(left + i * bw).toFixed(1)}" x2="${(left + i * bw).toFixed(1)}" y1="${top}" y2="${yB}"/>`;
   data.forEach((d, i) => {
     const yy = y(d.y), h = Math.max(1, Math.abs(z - yy)), col = d.color || (spec.signed !== false ? (d.y >= 0 ? 'var(--pos)' : 'var(--neg)') : (spec.color || 'var(--accent)'));
-    const r = Math.min(3, barW / 2, h), x0 = X(i) - barW / 2, up = d.y >= 0;
-    // rounded data-end, square baseline
-    const p = up ? `M${x0},${z}V${yy + r}Q${x0},${yy} ${x0 + r},${yy}H${x0 + barW - r}Q${x0 + barW},${yy} ${x0 + barW},${yy + r}V${z}Z` : `M${x0},${z}V${yy - r}Q${x0},${yy} ${x0 + r},${yy}H${x0 + barW - r}Q${x0 + barW},${yy} ${x0 + barW},${yy - r}V${z}Z`;
-    svg += `<path d="${p}" fill="${col}" class="bar" data-i="${i}"/>`;
-    if (spec.valueLabels && data.length <= 16 && Math.abs(d.y) > EPS) { const inside = !up && yy + 15 > H - bottom && h > 18; svg += `<text class="vlab${inside ? ' in' : ''}" x="${X(i)}" y="${up ? yy - 5 : inside ? yy - 5 : yy + 13}" text-anchor="middle">${esc(spec.valueFmt ? spec.valueFmt(d.y) : fmt(d.y, 0))}</text>`; }
+    const x0 = X(i) - barW / 2, up = d.y >= 0;
+    svg += `<rect class="bar" data-i="${i}" x="${x0.toFixed(1)}" y="${(up ? yy : z).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${col}"/>`;
+    if (spec.valueLabels && data.length <= 16 && Math.abs(d.y) > EPS) { const inside = !up && yy + 15 > yB && h > 18; svg += `<text class="vlab${inside ? ' in' : ''}" x="${X(i)}" y="${up ? yy - 5 : inside ? yy - 5 : yy + 13}" text-anchor="middle">${esc(spec.valueFmt ? spec.valueFmt(d.y) : fmt(d.y, 0))}</text>`; }
   });
-  if (spec.categorical) { const maxL = Math.floor(bw / 6.2); data.forEach((d, i) => { const t = String(d.label ?? xLabel(d.x)); svg += `<text class="xlab" x="${X(i)}" y="${H - bottom + 17}" text-anchor="middle">${esc(t.length > maxL && maxL > 3 ? t.slice(0, maxL - 1) + '…' : (maxL <= 3 && bw < 22 && i % 2 ? '' : t))}</text>`; }); }
+  svg += `<line class="axis" x1="${left}" x2="${left}" y1="${top}" y2="${yB}"/><line class="axis" x1="${left}" x2="${W - right}" y1="${yB}" y2="${yB}"/>`;
+  if (spec.categorical) { const maxL = Math.floor(bw / 6.2); data.forEach((d, i) => { const t = String(d.label ?? xLabel(d.x)); svg += `<line class="axis" x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${yB}" y2="${yB + 4}"/>${d.icon ? `<foreignObject class="xic" x="${(X(i) - 11).toFixed(1)}" y="${yB + 6}" width="22" height="22"><div xmlns="http://www.w3.org/1999/xhtml">${d.icon}</div></foreignObject>` : ''}<text class="xlab" x="${X(i)}" y="${yB + (hasIc ? 41 : 17)}" text-anchor="middle">${esc(t.length > maxL && maxL > 3 ? t.slice(0, maxL - 1) + '…' : (maxL <= 3 && bw < 22 && i % 2 ? '' : t))}</text>`; }); }
   else svg += xTicksSVG(data.map(d => d.x), X, H, bottom, Math.max(2, Math.floor((W - left) / 90)));
   svg += `<rect class="hband" x="0" y="${top}" width="${bw}" height="${H - top - bottom}" style="display:none"/>`;
   el._layout = { kind: 'bar', X, bw, left, data, f: spec.tipFmt || (v => unitFmt(v, spec.unit)), top, bottom, H };
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟแท่ง', 'Bar chart'))}">${svg}</svg>`;
 }
-/* horizontal bars (breakdowns) */
+/* v3.68 — horizontal bars like a diverging chart: labels on the left, one centre axis, value at each bar end */
 function drawHBar(spec, W, H, el) {
   const data = spec.data || []; if (!data.length) return emptyChart(spec.empty);
-  const f = spec.valueFmt || axisFmt(spec.unit), labW = clamp(Math.max(...data.map(d => String(d.label).length)) * 6.8 + 14, 60, Math.min(190, W * .38)), valW = clamp(Math.max(...data.map(d => String(f(d.y)).length)) * 7.2 + 14, 48, 120);
-  const top = 4, rowH = (H - top - 4) / data.length, barH = clamp(rowH * .62, 6, 22), maxAbs = Math.max(EPS, ...data.map(d => Math.abs(d.y))), hasNeg = data.some(d => d.y < 0);
-  const plotL = labW, plotR = W - valW, maxPos = Math.max(0, ...data.map(d => d.y)), maxNeg = Math.max(0, ...data.map(d => -d.y));
-  const scale = hasNeg ? (plotR - plotL) / ((maxPos + maxNeg) || 1) : (plotR - plotL) / maxAbs, zx = hasNeg ? plotL + maxNeg * scale : plotL;
-  let svg = hasNeg ? `<line class="grid zero" x1="${zx}" x2="${zx}" y1="${top}" y2="${H - 4}"/>` : '';
+  const f = spec.valueFmt || axisFmt(spec.unit), labW = clamp(Math.max(...data.map(d => String(d.label).length)) * 6.8 + 18, 60, Math.min(200, W * .36)), valW = clamp(Math.max(...data.map(d => String(f(d.y)).length)) * 6.8 + 10, 40, 110);
+  const top = 6, rowH = (H - top - 6) / data.length, barH = clamp(rowH * .62, 6, 24), hasNeg = data.some(d => d.y < -EPS), hasPos = data.some(d => d.y > EPS);
+  const plotL = labW + (hasNeg ? valW : 6), plotR = W - (hasPos || !hasNeg ? valW : 8), maxPos = Math.max(0, ...data.map(d => d.y)), maxNeg = Math.max(0, ...data.map(d => -d.y));
+  const scale = (plotR - plotL) / ((maxPos + maxNeg) || 1), zx = plotL + maxNeg * scale;
+  let svg = '';
   data.forEach((d, i) => {
     const cy = top + (i + .5) * rowH, w = Math.max(1.5, Math.abs(d.y) * scale), x = d.y >= 0 ? zx : zx - w, col = d.color || (spec.signed !== false ? (d.y >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)');
-    const lbl = String(d.label), maxc = Math.floor((labW - 12) / 6.6);
-    svg += `<text class="hlab" x="${spec.labelAlign === 'right' ? labW - 10 : 2}" y="${cy + 4}" text-anchor="${spec.labelAlign === 'right' ? 'end' : 'start'}">${esc(lbl.length > maxc ? lbl.slice(0, maxc - 1) + '…' : lbl)}</text><rect class="bar" data-i="${i}" x="${x.toFixed(1)}" y="${(cy - barH / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}"/><text class="hval ${tone(d.y)}" x="${W - 4}" y="${cy + 4}" text-anchor="end">${esc(f(d.y))}</text>`;
+    const lbl = String(d.label), maxc = Math.floor((labW - 14) / 6.6), vx = d.y >= 0 ? x + w + 6 : x - 6;
+    svg += `<rect class="hrow" x="0" y="${(cy - rowH / 2).toFixed(1)}" width="${W}" height="${rowH.toFixed(1)}"/><text class="hlab" x="${spec.labelAlign === 'right' ? labW - 10 : 4}" y="${cy + 4}" text-anchor="${spec.labelAlign === 'right' ? 'end' : 'start'}">${esc(lbl.length > maxc ? lbl.slice(0, maxc - 1) + '…' : lbl)}</text><rect class="bar" data-i="${i}" x="${x.toFixed(1)}" y="${(cy - barH / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}"/><text class="hval" x="${vx.toFixed(1)}" y="${cy + 4}" text-anchor="${d.y >= 0 ? 'start' : 'end'}">${esc(f(d.y))}</text>`;
   });
+  svg += `<line class="axis" x1="${zx.toFixed(1)}" x2="${zx.toFixed(1)}" y1="${top - 2}" y2="${H - 4}"/>`;
   el._layout = { kind: 'hbar', rowH, top, data, f: spec.tipFmt || f };
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟแท่งแนวนอน', 'Breakdown'))}">${svg}</svg>`;
 }
@@ -146,7 +156,7 @@ function drawHeatStrip() { return ''; }
 /* ---------- hover layer ---------- */
 function chartTip(html, x, y) { const t = $('#charttip'); t.classList.remove('gloss'); delete t.dataset.key; if (!html) { t.style.display = 'none'; return; } t.innerHTML = html; t.style.display = 'block'; const r = t.getBoundingClientRect(); let left = x + 14, top = y - r.height - 10; if (left + r.width > innerWidth - 8) left = x - r.width - 14; if (top < 8) top = y + 16; left = Math.max(8, Math.min(left, innerWidth - r.width - 8)); t.style.left = left + 'px'; t.style.top = top + 'px'; }
 function onChartMove(e) {
-  const el = e.target.closest?.('[data-chart]'); if (!el || !el._layout) { if (document.querySelector('#charttip')?.style.display === 'block' && !e.target.closest?.('[data-tip]')) chartTip(''); return; }
+  const el = e.target.closest?.('[data-chart]'); if (!el || !el._layout) { if (document.querySelector('#charttip')?.style.display === 'block' && !e.target.closest?.('[data-tip], .dn-fig .dseg')) chartTip(''); return; }
   const Lo = el._layout, svg = el.querySelector('svg'); if (!svg) return; const rect = svg.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
   if (Lo.kind === 'line' || Lo.kind === 'band') {
     const i = clamp(Math.round((mx - Lo.left) / ((Lo.W - Lo.left - Lo.right) || 1) * (Lo.n - 1)), 0, Lo.n - 1), x = Lo.X(i);
@@ -189,7 +199,7 @@ function wlGauge(w, b, l) {
 }
 function donut(parts, size = 120, thick = 14, center = '') {
   const tot = sum(parts.map(p => p.v)); const r = (size - thick) / 2, c = size / 2; let off = 0;
-  const segs = tot > 0 ? parts.filter(p => p.v > 0).map(p => { const len = p.v / tot * 100; const s = `<circle cx="${c}" cy="${c}" r="${r}" pathLength="100" fill="none" stroke="${p.color}" stroke-width="${thick}" stroke-dasharray="${Math.max(0, len - .8)} 100" stroke-dashoffset="${-off}" transform="rotate(-90 ${c} ${c})"><title>${esc(p.label)}</title></circle>`; off += len; return s; }).join('') : '';
+  const segs = tot > 0 ? parts.filter(p => p.v > 0).map(p => { const len = p.v / tot * 100; const s = `<circle class="dseg" data-i="${p.i ?? ''}" data-v="${p.v}" data-p="${(p.v / tot * 100).toFixed(1)}" data-l="${esc(p.name ?? p.label)}" cx="${c}" cy="${c}" r="${r}" pathLength="100" fill="none" stroke="${p.color}" stroke-width="${thick}" stroke-dasharray="${Math.max(0, len - .8)} 100" stroke-dashoffset="${-off}" transform="rotate(-90 ${c} ${c})"></circle>`; off += len; return s; }).join('') : '';
   return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="donut"><circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${thick}"/>${segs}${center ? `<text x="${c}" y="${c + 6}" text-anchor="middle" class="donut-c">${esc(center)}</text>` : ''}</svg>`;
 }
 function radar(axes, size = 250) {

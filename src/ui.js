@@ -2,7 +2,7 @@
    UI PRIMITIVES — icons, buttons, overlays, form controls
    ============================================================ */
 const MOD_KEY = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl';
-const icon = (n, cls = '') => `<svg class="icon${n === 'star' ? ' icon-fill' : ''} ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ICONS.grid}</svg>`;
+const icon = (n, cls = '') => `<svg class="icon${n === 'star' ? ' icon-fill' : ''} ${cls}" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">${ICONS[n] || ICONS.grid}</svg>`; // v3.65 — Google Material Symbols (outlined)
 const attrs = o => Object.entries(o || {}).filter(([, v]) => v != null && v !== false).map(([k, v]) => v === true ? k : `${k}="${esc(v)}"`).join(' ');
 function btn(label, action, extra = {}, cls = '') { return `<button type="button" class="btn ${cls}" data-action="${action}" ${attrs(extra)}>${label}</button>`; }
 function ibtn(ic, action, title, extra = {}, cls = '') { return `<button type="button" class="btn icon-only ghost ${cls}" data-action="${action}" aria-label="${esc(title)}" data-tip="${esc(title)}" ${attrs(extra)}>${icon(ic)}</button>`; }
@@ -54,12 +54,12 @@ function tagsHTML(ids, max = 3) { ids = ids || []; return `<span class="chips">$
 
 /* overlays */
 let modalStack = [], returnFocus = null;
-function openModal({ title, body, foot = '', size = '', cls = '', onClose = null, dismiss = true, guard = false, draft = null, fromDraft = null, saved = false, center = null }) {
+function openModal({ title, body, foot = '', size = '', cls = '', onClose = null, dismiss = true, guard = false, draft = null, fromDraft = null, saved = false, center = null, head = '' }) {
   // v3.53: display and edit windows slide in from the right; short yes/no prompts stay centred
   if (center == null) center = size === 'sm' && !/<(input|select|textarea|form)\b/i.test(String(body));
   returnFocus = document.activeElement;
   const id = 'm' + Date.now() + modalStack.length;
-  const html = `<div class="modal-back ${center ? 'centered' : 'sheet'}" data-modal="${id}"><section class="modal ${size} ${cls}" role="dialog" aria-modal="true" aria-label="${esc(String(title).replace(/<[^>]+>/g, ''))}"><header class="modal-h"><h2>${title}</h2>${ibtn('x', 'close-modal', L('ปิด', 'Close'))}</header><div class="modal-b">${body}</div>${foot ? `<footer class="modal-f">${guard || draft ? '<span class="ed-state"></span>' : ''}${foot}</footer>` : ''}</section></div>`;
+  const html = `<div class="modal-back ${center ? 'centered' : 'sheet'}" data-modal="${id}"><section class="modal ${size} ${cls}" role="dialog" aria-modal="true" aria-label="${esc(String(title).replace(/<[^>]+>/g, ''))}"><header class="modal-h"><h2>${title}</h2>${head ? `<div class="modal-hx">${head}</div>` : ''}${ibtn('x', 'close-modal', L('ปิด', 'Close'))}</header><div class="modal-b">${body}</div>${foot ? `<footer class="modal-f">${guard || draft ? '<span class="ed-state"></span>' : ''}${foot}</footer>` : ''}</section></div>`;
   $('#modal-root').insertAdjacentHTML('beforeend', html); const entry = { id, onClose, dismiss, guard: guard || !!draft, draft, fromDraft, saved }; modalStack.push(entry);
   const el = $(`[data-modal="${id}"]`); mountCharts(el); armGuard(entry, el);
   setTimeout(() => (el.querySelector('[autofocus]') || el.querySelector('input:not([type=hidden]),select,textarea,button.primary'))?.focus(), 30);
@@ -114,10 +114,14 @@ function field(name, label, val = '', type = 'text', o = {}) {
   return `<div class="field ${o.span ? 'span' + o.span : ''} ${o.cls || ''}"><label for="${id}">${label}${o.required ? ' <i class="req">*</i>' : ''}${tip}</label>${input}${help}</div>`;
 }
 function checkField(name, label, checked, help = '') { return `<label class="check"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''}><span class="box"></span><span>${label}${help ? `<small class="help">${help}</small>` : ''}</span></label>`; }
+/* v3.73 — Active switch for a dialog header (sits left of ×); `form` ties it to the dialog's form */
+function headToggle(name, checked, form, label = L('ใช้งาน', 'Active')) { return `<label class="mh-act"><span>${label}</span>${toggle(name, checked, '', `form="${form}"`)}</label>`; }
+/* v3.73 — name field with the colour swatch right after it (no "Color" label) */
+function nameColorField(label, name, color, o = {}) { return `<div class="field ${o.span ? 'span' + o.span : ''} nc-field"><label for="f_name">${label}${o.required ? ' <i class="req">*</i>' : ''}</label><div class="nc-row"><input id="f_name" name="name" type="text" value="${esc(name || '')}" ${o.required ? 'required' : ''} autofocus><input type="color" name="color" class="nc-sw" value="${esc(color || '#7b8bff')}" aria-label="${L('สี', 'Color')}" data-tip="${L('สี', 'Color')}"></div></div>`; }
 function toggle(name, checked, action = '', extra = '') { return `<label class="switch"><input type="checkbox" name="${name}" ${checked ? 'checked' : ''} ${action ? `data-change="${action}"` : ''} ${extra}><span></span></label>`; }
 function formData(form) {
   const o = {}; new FormData(form).forEach((v, k) => { o[k] = v; });
-  $$('input[type=checkbox][name]', form).forEach(c => { o[c.name] = c.checked; }); return o;
+  [...form.elements].filter(c => c.type === 'checkbox' && c.name).forEach(c => { o[c.name] = c.checked; }); return o;
 }
 /* currency dropdown grouped by kind; keeps an unknown stored code selectable */
 function currencySelect(name, label, val, o = {}) {
@@ -129,32 +133,39 @@ function currencySelect(name, label, val, o = {}) {
 /* Local / Broker clock switch shown on the trade list and the daily journal */
 function timeViewSeg() {
   const any = state.accounts.some(a => a.brokerTz), tip = any ? L('สลับการแสดงเวลาของเทรด: เวลาเครื่อง หรือเวลาเซิร์ฟเวอร์โบรกเกอร์ของแต่ละบัญชี', 'Show trade times in your local time or each account’s broker server time') : L('ตั้งเขตเวลาเซิร์ฟเวอร์ในหน้าแก้ไขบัญชีก่อน จึงจะสลับเป็นเวลาโบรกเกอร์ได้', 'Set a broker server timezone on an account first');
-  return `<div class="tv-seg" data-tip="${esc(tip)}">${icon('clock', 'tiny')}${seg([['local', L('เครื่อง', 'Local')], ['broker', L('โบรกเกอร์', 'Broker')]], timeView(), 'time-view', any ? '' : 'disabled')}</div>`;
+  /* v3.74 — icons instead of words: schedule = local time, globe clock = broker time (names in the tooltips) */
+  const b = (v, ic, name) => `<button type="button" class="${timeView() === v ? 'on' : ''}" data-action="time-view" data-value="${v}" data-tip="${esc(name + (any ? '' : ' · ' + tip))}" aria-label="${esc(name)}" ${any ? '' : 'disabled'}>${icon(ic)}</button>`;
+  return `<div class="tv-seg"><div class="seg tv-ic" role="group">${b('local', 'schedule', L('เวลาเครื่อง', 'Local time'))}${b('broker', 'globe-clock', L('เวลาโบรกเกอร์', 'Broker time'))}</div></div>`;
 }
-function instrumentPicker(name, cur) {
+function instrumentPicker(name, cur, o = {}) {
   const ins = get('instruments', cur);
-  return `<div class="field"><label for="f_${name}_search">${L('สินทรัพย์', 'Instrument')} <i class="req">*</i></label><div class="combo" data-combo="${name}"><span class="combo-ic">${insIcon(ins)}</span><input id="f_${name}_search" class="combo-input" autocomplete="off" value="${esc(ins?.symbol || '')}" placeholder="${L('ค้นหาสัญลักษณ์…', 'Search symbol…')}" data-combo-input="${name}"><input type="hidden" name="${name}" value="${esc(cur || '')}"><div class="combo-list" hidden></div></div></div>`;
+  /* v3.73 — o.all: adds an "All instruments" choice (blank value) and lists only instruments that have trades — used by Filters */
+  return `<div class="field">${o.noLabel ? '' : `<label for="f_${name}_search">${L('สินทรัพย์', 'Instrument')} <i class="req">*</i></label>`}<div class="combo" data-combo="${name}" ${o.all ? `data-all="${esc(o.all)}"` : ''}><span class="combo-ic">${ins ? insIcon(ins) : icon('layers')}</span><input id="f_${name}_search" class="combo-input" autocomplete="off" value="${esc(ins?.symbol || '')}" placeholder="${o.all ? esc(o.all) : L('ค้นหาสัญลักษณ์…', 'Search symbol…')}" data-combo-input="${name}"><input type="hidden" name="${name}" value="${esc(cur || '')}"><div class="combo-list" hidden></div></div></div>`;
 }
 function comboResults(q) {
   q = q.trim().toUpperCase(); const used = new Map(); state.trades.forEach(t => used.set(t.instrumentId, (used.get(t.instrumentId) || 0) + 1));
   return state.instruments.filter(i => i.active !== false && (!q || i.symbol.includes(q) || (String(i.name || '') + ' ' + insName(i)).toUpperCase().includes(q))).sort((a, b) => (q && a.symbol.startsWith(q) ? -1 : 0) - (q && b.symbol.startsWith(q) ? -1 : 0) || (used.get(b.id) || 0) - (used.get(a.id) || 0) || a.symbol.localeCompare(b.symbol)).slice(0, 40);
 }
 function renderCombo(input) {
-  const box = input.closest('.combo'), list = box.querySelector('.combo-list'), items = comboResults(input.value);
-  list.innerHTML = items.length ? items.map((i, k) => `<button type="button" class="combo-opt ${k === 0 ? 'act' : ''}" data-action="combo-pick" data-id="${i.id}">${insIcon(i)}<strong>${esc(i.symbol)}</strong><small>${esc(insName(i))}</small></button>`).join('') : `<div class="combo-none">${L('ไม่พบ — เพิ่มได้ที่ ตั้งค่า → สินทรัพย์', 'Not found — add it in Instruments')}</div>`;
+  const box = input.closest('.combo'), list = box.querySelector('.combo-list'), all = box.dataset.all, used = all ? new Set(state.trades.map(t => t.instrumentId)) : null, items = comboResults(input.value).filter(i => !used || used.has(i.id));
+  const opts = (all && !input.value.trim() ? [`<button type="button" class="combo-opt act" data-action="combo-pick" data-id="">${icon('layers')}<strong>${esc(all)}</strong><small></small></button>`] : []).concat(items.map((i, k) => `<button type="button" class="combo-opt ${k === 0 && !(all && !input.value.trim()) ? 'act' : ''}" data-action="combo-pick" data-id="${i.id}">${insIcon(i)}<strong>${esc(i.symbol)}</strong><small>${esc(insName(i))}</small></button>`));
+  list.innerHTML = opts.length ? opts.join('') : `<div class="combo-none">${L('ไม่พบ — เพิ่มได้ที่ ตั้งค่า → สินทรัพย์', 'Not found — add it in Instruments')}</div>`;
   list.hidden = false;
 }
-function tagPicker(selected, highlight = []) {
-  const sel = new Set(selected);
-  return `<div class="tagpick">${state.tagCategories.map(c => { const tags = state.tags.filter(t => t.categoryId === c.id && (t.active !== false || sel.has(t.id))); if (!tags.length) return ''; return `<div class="tagpick-g"><div class="tagpick-h"><i style="background:${esc(c.color || 'var(--accent)')}"></i>${esc(catName(c))}</div><div class="chips">${tags.map(t => `<button type="button" class="chip pick ${sel.has(t.id) ? 'on' : ''} ${c.id === 'cat_mistakes' ? 'mistake' : ''} ${highlight.includes(t.id) ? 'hl' : ''}" style="--c:${esc(c.color || 'var(--accent)')}" data-action="tag-toggle" data-id="${t.id}">${esc(tagName(t))}</button>`).join('')}</div></div>`; }).join('')}<button type="button" class="btn ghost sm" data-action="tag-quick-add">${icon('plus')} ${L('สร้างแท็กใหม่', 'New tag')}</button></div>`;
+/* v3.74 — tags as a dropdown: the chosen tags sit in a field (× removes), the list opens below it grouped by category */
+function tagPicker(selected, highlight = [], open = false) {
+  const sel = new Set(selected), col = c => esc(c?.color || 'var(--accent)');
+  const chips = selected.map(id => state.tags.find(t => t.id === id)).filter(Boolean).map(t => { const c = get('tagCategories', t.categoryId); return `<span class="chip ${t.categoryId === 'cat_mistakes' ? 'mistake' : ''}" style="--c:${col(c)}">${esc(tagName(t))}<button type="button" data-action="tag-toggle" data-id="${t.id}" aria-label="${L('เอาออก', 'Remove')}">×</button></span>`; }).join('');
+  const groups = state.tagCategories.map(c => { const tags = state.tags.filter(t => t.categoryId === c.id && (t.active !== false || sel.has(t.id))); if (!tags.length) return ''; return `<div class="tagdd-h"><i style="background:${col(c)}"></i>${esc(catName(c))}</div>${tags.map(t => `<button type="button" class="tagdd-opt ${sel.has(t.id) ? 'on' : ''} ${highlight.includes(t.id) ? 'hl' : ''}" data-action="tag-toggle" data-id="${t.id}"><span class="tagdd-ck">${icon('check')}</span><span>${esc(tagName(t))}</span>${highlight.includes(t.id) ? `<small>${L('แนะนำ', 'Suggested')}</small>` : ''}</button>`).join('')}`; }).join('');
+  return `<div class="tagpick tagdd" data-hl="${esc(JSON.stringify(highlight))}"><div class="tagdd-field ${open ? 'open' : ''}" data-action="tagdd-open" role="button" tabindex="0" aria-expanded="${open}">${chips || `<span class="tagdd-ph">${L('เลือกแท็ก…', 'Select tags…')}</span>`}<span class="tagdd-chev">${icon('chev-down')}</span></div><div class="tagdd-pop" ${open ? '' : 'hidden'}>${groups}<button type="button" class="tagdd-new" data-action="tag-quick-add">${icon('plus')} ${L('สร้างแท็กใหม่', 'New tag')}</button></div></div>`;
 }
 /* built-in tag / category names are stored in English and shown in Thai when the UI is Thai (a renamed one shows as typed) */
 const TAG_TH = { 'Early Entry': 'เข้าเร็วเกินไป', 'Late Entry': 'เข้าช้าเกินไป', 'Early Exit': 'ออกเร็วเกินไป', 'Moved Stop': 'เลื่อน S/L', 'Oversized': 'ขนาดสัญญาใหญ่เกินไป', 'FOMO': 'FOMO (กลัวตกรถ)', 'No Setup / FOMO': 'FOMO (กลัวตกรถ)', 'Revenge Trade': 'เทรดแก้แค้น', 'Broke Rules': 'ทำผิดกฎ', 'Trending': 'ตลาดมีเทรนด์', 'Ranging': 'ตลาดไซด์เวย์', 'High Volatility': 'ผันผวนสูง', 'News Day': 'วันมีข่าว' };
 const CAT_TH = { 'Mistakes': 'ความผิดพลาด', 'Market Context': 'บริบทตลาด', 'Setups': 'รูปแบบ (Setups)' };
 function tagName(t) { const n = t?.name || ''; return LANG === 'th' && TAG_TH[n] || n; }
 function catName(c) { const n = c?.name || ''; return LANG === 'th' && CAT_TH[n] || n; }
-function emotionPicker(cur, action = 'emotion-pick') { return `<div class="emo">${EMOTIONS.map(([k, th]) => `<button type="button" class="${cur === k ? 'on' : ''}" data-action="${action}" data-value="${k}">${emoji(k)}<span>${esc(L(th, k))}</span></button>`).join('')}</div>`; }
-function kpi(label, val, sub = '', cls = '', tip = '') { const g = !tip && glossKeyOf(label); return `<div class="kpi ${cls}"><div class="kpi-l" ${tip ? `data-tip="${esc(tip)}"` : ''}>${g ? gl(label, g) : label}${tip ? ' ' + icon('info', 'tiny') : ''}</div><div class="kpi-v">${val}</div>${sub ? `<div class="kpi-s">${sub}</div>` : ''}</div>`; }
+function emotionPicker(cur, action = 'emotion-pick') { return `<div class="emo emo-ic">${EMOTIONS.map(([k, th]) => `<button type="button" class="${cur === k ? 'on' : ''}" data-action="${action}" data-value="${k}" data-tip="${esc(L(th, k))}" aria-label="${esc(L(th, k))}">${emoji(k)}</button>`).join('')}</div>`; } // v3.74: emoji only, name in the tooltip
+function kpi(label, val, sub = '', cls = '', tip = '') { const g = !tip && glossKeyOf(label); return `<div class="kpi ${cls}"><div class="kpi-l ${tip ? 'ul-tip' : ''}" ${tip ? `data-tip="${esc(tip)}"` : ''}>${g ? gl(label, g) : label}</div><div class="kpi-v">${val}</div>${sub ? `<div class="kpi-s">${sub}</div>` : ''}</div>`; }
 function progress(pct, cls = '') { return `<div class="progress ${cls}"><span style="width:${clamp(finite(pct) ? pct : 0, 0, 100)}%"></span></div>`; }
 
 /* ---------- editor tabs (trade / plan modals) ---------- */

@@ -2,7 +2,24 @@
    CALCULATION ENGINE — P&L, R, stats, grouping, risk, simulations
    tickValue is denominated in the instrument's valueCurrency.
    ============================================================ */
-function specOf(t) { return t.instrumentSnapshot?.id === t.instrumentId ? t.instrumentSnapshot : get('instruments', t.instrumentId); }
+/* v3.64 — a cent account can use its own spec for the same symbol (the broker's Cent symbol): i.cent overrides, blank = same as Standard.
+   Spec values are in the symbol's currency (profit converts USD → USC ×100); i.cent.commissionPerLot is in the cent currency. */
+const CENT_SPEC_KEYS = ['contractSize', 'minQuantity', 'maxQuantity', 'quantityStep', 'spread', 'commissionPerLot', 'marginRate', 'initialMargin', 'tickValue'];
+const centOverrides = i => Object.fromEntries(Object.entries(i?.cent || {}).filter(([k, v]) => CENT_SPEC_KEYS.includes(k) && typeof v === 'number' && Number.isFinite(v)));
+const CENT_SCALED = ['Forex', 'Metals'];
+/* default cent contract size: Forex / Metals = standard ÷ 100 (one cent lot = 1/100 standard lot) */
+const centDefaultCs = i => CENT_SCALED.includes(i?.assetClass) && i.contractSize > 0 ? +(i.contractSize / 100).toPrecision(12) : null;
+function centSpec(i, cur) {
+  if (!i || !isCent(cur)) return i; const o = centOverrides(i), dcs = centDefaultCs(i);
+  if (!Object.keys(o).length && dcs == null) return i;
+  const m = { ...i, ...(dcs != null ? { contractSize: dcs } : {}), ...o, centSpec: true }, mode = m.calcMode || defaultCalcMode(m.assetClass, m.symbol);
+  if (mode !== 'Futures') { if (m.contractSize > 0 && m.tickSize > 0) m.tickValue = +(m.contractSize * m.tickSize).toPrecision(12); }
+  return m;
+}
+const specFor = (i, accountId) => centSpec(i, get('accounts', accountId)?.currency);
+function specOf(t) { return specFor(t.instrumentSnapshot?.id === t.instrumentId ? t.instrumentSnapshot : get('instruments', t.instrumentId), t.accountId); }
+/* round-trip commission per lot in the account currency — a cent lot pays the standard rate scaled by its contract size, in cents */
+function commissionPerLotFor(ins, accountId) { const cur = get('accounts', accountId)?.currency, c = centOverrides(ins); if (isCent(cur) && c.commissionPerLot > 0) return c.commissionPerLot; if (!(ins?.commissionPerLot > 0)) return null; if (!isCent(cur)) return ins.commissionPerLot; const cs = centSpec(ins, cur).contractSize, k = ins.contractSize > 0 && cs > 0 ? cs / ins.contractSize : 1; return +(ins.commissionPerLot * centMul(cur) * k).toPrecision(12); }
 function pipSizeOf(t) { const h = specOf(t)?.pipSize, c = get('instruments', t.instrumentId)?.pipSize; return h > 0 ? h : c > 0 ? c : null; }
 /* profit-currency value of a 1.0 price move on 1 lot — MT5 SYMBOL_CALC_MODE:
    Forex · Forex No Leverage · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
@@ -13,15 +30,26 @@ function unitRate(i) {
   if (i.calcMode && i.calcMode !== 'Futures') return i.contractSize > 0 ? i.contractSize * m : null;
   return i.tickSize > 0 && i.tickValue > 0 ? i.tickValue / i.tickSize * m : null;
 }
-/* ---------- cent accounts (v3.50) — USC = 1/100 USD, EUC = 1/100 EUR. Profit and margin are worked out in the
-   symbol's currency, then converted: USD → USC is a fixed ×100; other currencies use the trade's FX rate to the
-   parent currency (USD), then ×100. Instrument specs stay exactly as the broker shows them. ---------- */
+/* ---------- cent accounts — USC = 1/100 USD, EUC = 1/100 EUR. Profit and margin are worked out in the symbol's
+   currency with the cent account's spec, then converted: USD → USC ×100; other currencies via the FX rate, then ×100.
+   v3.67: on cent accounts Forex and Metals use 1/100 of the standard contract size (EURUSD 1,000 · XAUUSD 1), as cent
+   brokers do — XAUUSD 0.1 lot, −3.31 move → −33.10 USC. Indices and the rest keep their contract size. ---------- */
 const CENT = { USC: 'USD', EUC: 'EUR' };
 const isCent = c => !!CENT[c];
 const centParent = c => CENT[c] || c;
 const centMul = c => CENT[c] ? 100 : 1;
 /* value currency → account currency; null when an FX rate is needed but missing */
-const defaultFx = (from, to) => { const r = state?.settings?.fxRates?.[from + ':' + to]; return r > 0 ? r : null; };
+/* v3.63 — reference rates: Federal Reserve H.10 (noon buying rates in New York). usd: true = quoted as US$ per unit */
+const FED_H10 = { release: '2026-10-26', asOf: '2026-10-23', url: 'https://www.federalreserve.gov/releases/h10/current/', rates: {
+  AUD: [0.7037, true], BRL: [5.0410], CAD: [1.3993], CNY: [6.6702], DKK: [6.6729], EUR: [1.1199, true], HKD: [7.8423], INR: [94.9400], JPY: [156.8700], MYR: [4.0837], MXN: [18.6638],
+  NZD: [0.5705, true], NOK: [9.3227], SGD: [1.2782], ZAR: [16.5868], KRW: [1325.0600], LKR: [332.0300], SEK: [9.9237], CHF: [0.8248], TWD: [32.5400], THB: [33.7600], GBP: [1.3375, true] } };
+/* US$ value of one unit of a currency, from H.10 */
+function fedUsdPer(c) { if (c === 'USD') return 1; const r = FED_H10.rates[c]; return r ? (r[1] ? r[0] : 1 / r[0]) : null; }
+/* any pair through the dollar: 1 FROM = ? TO */
+function fedCross(from, to) { const a = fedUsdPer(from), b = fedUsdPer(to); return a && b ? +(a / b).toPrecision(8) : null; }
+/* your own rate (either direction) wins; otherwise the FED reference rate (Settings › Exchange rates can switch that off) */
+const userFx = (from, to) => { const m = state?.settings?.fxRates || {}, r = m[from + ':' + to], inv = m[to + ':' + from]; return r > 0 ? r : inv > 0 ? +(1 / inv).toPrecision(8) : null; };
+const defaultFx = (from, to) => userFx(from, to) ?? (state?.settings?.fxAuto === false ? null : fedCross(from, to));
 function fxFactor(vc, ac, fxRate) { if (!ac || !vc || vc === ac) return 1; if (vc === centParent(ac)) return centMul(ac); const r = fxRate > 0 && fxRate !== 1 ? fxRate : defaultFx(vc, centParent(ac)); return r ? r * centMul(ac) : null; } // a stored rate of exactly 1 between two different currencies is a leftover default, not a real rate
 const fxNeededFor = (vc, ac) => !!(vc && ac && vc !== ac && vc !== centParent(ac));
 /* totals across a cent account and a normal one: report the cent account in its parent currency */
@@ -41,7 +69,7 @@ function tickRate(t) {
    Contracts Leverage: Lots × Contract size × Price ÷ Leverage × Margin rate
    Futures:            Lots × Initial margin × Margin rate */
 function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
-  const i = spec || get('instruments', instrumentId), a = get('accounts', accountId);
+  const i = spec || specFor(get('instruments', instrumentId), accountId), a = get('accounts', accountId);
   const mode = i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol), lev = a?.leverage > 0 ? a.leverage : null;
   const out = { v: null, mode, lev, need: [] };
   if (!i || !(lots > 0) || !(price > 0)) return out;
@@ -101,7 +129,7 @@ function accountBalance(id, until = Infinity) {
 }
 function planCalc(p) {
   const bal = accountBalance(p.accountId), budget = bal * (p.riskPct || 0) / 100, rate = tickRate(p);
-  const dist = p.stopLoss != null && p.entryPrice != null ? Math.abs(p.entryPrice - p.stopLoss) : null, ins = get('instruments', p.instrumentId);
+  const dist = p.stopLoss != null && p.entryPrice != null ? Math.abs(p.entryPrice - p.stopLoss) : null, ins = specFor(get('instruments', p.instrumentId), p.accountId);
   const per = dist > EPS && rate ? dist * rate : null, step = ins?.quantityStep || .01;
   const qty = per ? Math.floor((Math.min(budget / per, ins?.maxQuantity || Infinity) + 1e-9) / step) * step : null;
   const risk = finite(qty) && per ? qty * per : null;

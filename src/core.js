@@ -3,7 +3,7 @@
    EdgeDesk 3 — Offline Trading Journal
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'EdgeDesk', APP_VERSION = '3.61.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'EdgeDesk', APP_VERSION = '3.75.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -475,7 +475,7 @@ function migrateV36(d) {
 /* ---------- lookups ---------- */
 const byId = new Map();
 function reindex() { byId.clear(); for (const k of COLLECTIONS) for (const r of state[k] || []) byId.set(k + ':' + r.id, r); }
-const get = (kind, id) => id ? (byId.get(kind + ':' + id) || state[kind]?.find(x => x.id === id)) : undefined;
+const get = (kind, id) => id ? (byId.get(kind + ':' + id) || state[kind]?.find(x => x.id === id) || (kind === 'accounts' && String(id).startsWith('calc:') ? calcVirtual(id) : undefined)) : undefined;
 const nameOf = (kind, id, f = 'name') => { const r = get(kind, id); if (r && f === 'name' && kind === 'tags') return tagName(r); if (r && f === 'name' && kind === 'tagCategories') return catName(r); return r?.[f] || '—'; };
 function currentAccounts() { return (state?.accounts || []).filter(a => !ui.account || a.id === ui.account); }
 function accountCurrency(t) { return get('accounts', t?.accountId)?.currency || 'USD'; }

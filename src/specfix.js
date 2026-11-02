@@ -13,8 +13,8 @@ const specRate = i => unitRate(i);
 const specCcy = i => i?.valueCurrency || i?.quoteCurrency || '';
 /* trades whose stored spec values money differently from the instrument's current spec */
 function staleSpecTrades(insId) {
-  const cur = get('instruments', insId), r = specRate(cur); if (!r) return [];
-  return state.trades.filter(t => t.instrumentId === insId && t.instrumentSnapshot?.id === insId && (Math.abs((specRate(t.instrumentSnapshot) || 0) - r) > 1e-9 * r || specCcy(t.instrumentSnapshot) !== specCcy(cur)));
+  const cur = get('instruments', insId); if (!specRate(cur)) return [];
+  return state.trades.filter(t => { if (t.instrumentId !== insId || t.instrumentSnapshot?.id !== insId) return false; const c = specFor(cur, t.accountId), o = specFor(t.instrumentSnapshot, t.accountId), r = specRate(c) || 0; return Math.abs((specRate(o) || 0) - r) > 1e-9 * Math.max(r, 1e-12) || specCcy(o) !== specCcy(c); });
 }
 const qtyRound = v => +(+v).toPrecision(10);
 function applySpecChoice(insId, mode) {
@@ -99,11 +99,11 @@ function insModeSync() {
   if (!fut && cs > 0 && ts > 0) tv.value = +(cs * ts).toPrecision(10);
   tv.readOnly = !fut; tv.classList.toggle('locked', !fut); tv.tabIndex = fut ? 0 : -1;
   const tsI = f.tickSize; tsI.readOnly = !fut; tsI.classList.toggle('kv-ro', !fut); tsI.tabIndex = fut ? 0 : -1; // v3.54: tick size follows the decimals (Futures: from the specification)
-  tv.classList.toggle('kv-ro', !fut); const tn = $('#ins-ts-note'); if (tn) tn.textContent = fut ? L('(ตาม Specification)', '(from the specification)') : L('(คำนวณจาก Decimal places)', '(from decimal places)');
-  const h = $('#ins-tv-help'); if (h) h.textContent = fut ? L('(ตาม Specification · ใช้คิดกำไร)', '(from the specification · drives profit)') : L('(ขนาดสัญญา × ขนาดติ๊ก)', '(contract size × tick size)');
+  tv.classList.toggle('kv-ro', !fut); setTip('ins-ts-note', fut ? L('ตาม Specification', 'From the specification') : L('คำนวณจาก Decimal places', 'From decimal places'));
+  setTip('ins-tv-help', fut ? L('ตาม Specification · ใช้คิดกำไร', 'From the specification · drives profit') : L('ขนาดสัญญา × ขนาดติ๊ก', 'Contract size × tick size'));
   const c = $('#ins-cm-tip'); if (c) c.dataset.tip = CALC_MODE_INFO()[mode] || '';
   f.querySelectorAll('.ins-fut').forEach(x => x.hidden = !fut);
-  updateInsPreview(); insMultWarn();
+  updateInsPreview(); insMultWarn(); centSync();
 }
 function insMultWarn() {
   const f = $('#ins-form'); if (!f) return; const cs = num(f.contractSize.value), ts = num(f.tickSize.value), tv = num(f.tickValue.value), m = num(f.multiplier?.value) || 1;
@@ -237,12 +237,12 @@ function centToolHTML(accId) {
     <div class="tablewrap"><table class="recalc-t"><thead><tr><th></th><th class="num">${L('ตอนนี้', 'Now')}</th><th class="num">${L('หลังปรับ', 'After')}</th></tr></thead><tbody>
       ${row(L('ทุนเริ่มต้น', 'Starting capital'), now0.start, after.start, mf)}${row(L('กำไรจากการเทรด', 'Trading P&L'), now0.pnl, after.pnl, v => money(v, cur, true))}${row(L('ล็อตรวม', 'Total lots'), now0.lots, after.lots, lf)}${row(`<b>${L('ยอดเงินปัจจุบัน', 'Balance')}</b>`, now0.bal, after.bal, mf)}
     </tbody></table></div>
-    <p class="help mt8">${L('ยอดเงินหลังปรับควรตรงกับ Balance ใน MT5 บัญชีเซ็นต์', 'The balance after should match the MT5 cent account balance')}</p>
+    <p class="help mt8">${L('ยอดเงินหลังปรับควรตรงกับ Balance ใน MT5 บัญชี Standard Cent', 'The balance after should match the MT5 Standard Cent account balance')}</p>
     ${undo ? `<div class="notice info mt16">${icon('info')}<span class="grow">${L('ปรับล่าสุด', 'Last change')} ${fmtDate(undo.at, { time: true })}</span>${btn(icon('undo') + L(' ย้อนกลับ', ' Undo'), 'cent-undo', { 'data-id': accId }, 'sm')}</div>` : ''}`;
 }
 function openCentTool(accId) {
   ui.centOpt ||= { lots: true, money: false };
-  openModal({ title: icon('wallet') + L(' ปรับข้อมูลบัญชีเซ็นต์', ' Adjust cent account data'), size: 'md', body: `<div id="cent-body" data-id="${accId}">${centToolHTML(accId)}</div>`,
+  openModal({ title: icon('wallet') + L(' ปรับข้อมูลบัญชี Standard Cent', ' Adjust Standard Cent account data'), size: 'md', body: `<div id="cent-body" data-id="${accId}">${centToolHTML(accId)}</div>`,
     foot: `<div class="grow"></div>${btn(L('ไม่ต้องปรับ', 'Leave as is'), 'close-modal', {}, 'ghost')}${btn(icon('check') + L(' ปรับข้อมูล', ' Apply'), 'cent-apply', { 'data-id': accId }, 'primary')}` });
 }
 const centRefresh = () => { const b = $('#cent-body'); if (b) b.innerHTML = centToolHTML(b.dataset.id); };
@@ -288,11 +288,11 @@ function openFxTool() {
   const m = missingFxPairs(), rates = state.settings.fxRates || {};
   const rows = fxPairsToShow().map(k => { const [f, t] = k.split(':'), n = m.get(k) || 0; return `<div class="fx-row"><label for="fx_${k}">1 ${esc(f)} =</label><input id="fx_${k}" type="number" step="any" inputmode="decimal" min="0" data-fx-pair="${esc(k)}" value="${rates[k] ?? ''}" placeholder="${L('ยังไม่ได้ตั้ง', 'not set')}"><span>${esc(t)}</span>${n ? `<em class="neg small">${L(`${n} เทรดรออยู่`, `${n} trades waiting`)}</em>` : '<em></em>'}</div>`; }).join('');
   openModal({ title: icon('coins') + L(' อัตราแลกเปลี่ยนเริ่มต้น', ' Default FX rates'), size: 'md',
-    body: `<p class="muted small" style="margin-top:0">${L('ใช้กับเทรดที่ไม่ได้กรอกอัตราแลกเปลี่ยนเอง · เทรดที่กรอกไว้ใช้ค่าของตัวเอง · บัญชีเซ็นต์ใช้สกุลหลัก (USC → USD) แล้วคูณ 100 ให้', 'Used by trades without their own FX rate · trades with one keep it · cent accounts use the parent currency (USC → USD) and ×100')}</p>${rows ? `<div class="fx-list">${rows}</div>` : `<p class="dim">${L('ไม่มีบัญชีที่ต้องใช้อัตราแลกเปลี่ยน', 'No account needs an FX rate')}</p>`}<p class="help mt8">${L('ค่าเดียวใช้กับทุกวัน — ถ้าต้องการความแม่นยำรายเทรด ให้กรอกอัตราในเทรดนั้น หรือนำเข้าพร้อมกำไรจากโบรกเกอร์', 'One rate for every day — for exact figures, type the rate on the trade or import with the broker’s profit')}</p>`,
+    body: `<p class="muted small" style="margin-top:0">${L('ใช้กับเทรดที่ไม่ได้กรอกอัตราแลกเปลี่ยนเอง · เทรดที่กรอกไว้ใช้ค่าของตัวเอง · บัญชี Standard Centใช้สกุลหลัก (USC → USD) แล้วคูณ 100 ให้', 'Used by trades without their own FX rate · trades with one keep it · cent accounts use the parent currency (USC → USD) and ×100')}</p>${rows ? `<div class="fx-list">${rows}</div>` : `<p class="dim">${L('ไม่มีบัญชีที่ต้องใช้อัตราแลกเปลี่ยน', 'No account needs an FX rate')}</p>`}<p class="help mt8">${L('ค่าเดียวใช้กับทุกวัน — ถ้าต้องการความแม่นยำรายเทรด ให้กรอกอัตราในเทรดนั้น หรือนำเข้าพร้อมกำไรจากโบรกเกอร์', 'One rate for every day — for exact figures, type the rate on the trade or import with the broker’s profit')}</p>`,
     foot: `<div class="grow"></div>${btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost')}${btn(icon('save') + L(' บันทึก', ' Save'), 'fx-save', {}, 'primary')}` });
 }
 Object.assign(SPEC_ACTIONS, {
-  'fx-open': () => openFxTool(),
+  'fx-open': () => { while (modalStack.length) closeModal(true); go('settings/fx'); }, // v3.63: full page under Settings
   'fx-save': async () => {
     const r = { ...(state.settings.fxRates || {}) };
     $$('[data-fx-pair]').forEach(i => { const v = num(i.value); if (v > 0) r[i.dataset.fxPair] = v; else delete r[i.dataset.fxPair]; });
@@ -307,7 +307,7 @@ Object.assign(SPEC_ACTIONS, {
    · every money input shows its unit, and on cent accounts a "≈ $" hint
    ============================================================ */
 const CENT_OF = Object.fromEntries(Object.entries(CENT).map(([c, p]) => [p, c])); // USD → USC
-const centBadge = cur => isCent(cur) ? `<span class="cent-badge" data-tip="${L(`บัญชีเซ็นต์ · 100 ${cur} = 1 ${centParent(cur)}`, `Cent account · 100 ${cur} = 1 ${centParent(cur)}`)}">${L('เซ็นต์', 'Cent')}</span>` : '';
+const centBadge = cur => isCent(cur) ? `<span class="cent-badge" data-tip="${L(`บัญชี Standard Cent · 100 ${cur} = 1 ${centParent(cur)}`, `Standard Cent account · 100 ${cur} = 1 ${centParent(cur)}`)}">${'Standard Cent'}</span>` : '';
 const centHint = (v, cur) => isCent(cur) && finite(v) && v ? `≈ ${money(v / centMul(cur), centParent(cur))}` : '';
 /* which currency a form's money fields are in */
 function formCurrency(form) {
@@ -341,12 +341,12 @@ const moneyField = (name, label, val, extra = {}) => field(name, label, val, 'nu
 const ACC_CURS = ['USD', 'USC'];
 function accTypeField(a, existing) {
   const cur = a.currency || 'USD', cent = isCent(cur), legacy = !ACC_CURS.includes(cur);
-  const tip = esc(L('บัญชีปกติใช้ USD · บัญชีเซ็นต์ใช้ USC (100 USC = 1 USD) กรอกทุน ฝาก/ถอน และค่าคอมมิชชันตามที่เห็นใน MT5 · สเปกสินทรัพย์ไม่ต้องแก้', 'Standard accounts use USD · Cent accounts use USC (100 USC = 1 USD) — type capital, deposits and commission as MT5 shows them · instrument specs stay as they are'));
+  const tip = esc(L('บัญชี Standard ใช้ USD · บัญชี Standard Cent ใช้ USC (100 USC = 1 USD) กรอกทุน ฝาก/ถอน และค่าคอมมิชชันตามที่เห็นใน MT5 · สเปกสินทรัพย์ไม่ต้องแก้', 'Standard accounts use USD · Standard Cent accounts use USC (100 USC = 1 USD) — type capital, deposits and commission as MT5 shows them · instrument specs stay as they are'));
   const lab = `<label>${L('ประเภทบัญชี', 'Account type')} <span class="info-tip" data-tip="${tip}">${icon('info', 'tiny')}</span></label>`;
-  if (!existing) return `<div class="field span2">${lab}<div class="seg acc-units" role="radiogroup"><label><input type="radio" name="accUnits" value="std" ${cent ? '' : 'checked'}><span>${L('ปกติ', 'Standard')} · USD</span></label><label><input type="radio" name="accUnits" value="cent" ${cent ? 'checked' : ''}><span>${L('เซ็นต์', 'Cent')} · USC</span></label></div>
+  if (!existing) return `<div class="field span2">${lab}<div class="seg acc-units" role="radiogroup"><label><input type="radio" name="accUnits" value="std" ${cent ? '' : 'checked'}><span>${'Standard'} · USD</span></label><label><input type="radio" name="accUnits" value="cent" ${cent ? 'checked' : ''}><span>${'Standard Cent'} · USC</span></label></div>
     <p class="help">${L('สกุลเงินของบัญชี', 'Account currency')}: <b class="acc-type-cur">${cent ? 'USC' : 'USD'}</b> · ${L('เลือกแล้วเปลี่ยนภายหลังไม่ได้ ยกเว้นใช้เครื่องมือ “แปลงประเภทบัญชี” ซึ่งแปลงข้อมูลไปพร้อมกัน', 'Fixed once created — switching later uses “Convert account”, which converts the data with it')}</p></div>`;
-  return `<div class="field span2">${lab}<div class="acc-type-lock"><span class="acc-type-v">${icon('lock', 'tiny')}<b>${cent ? L('เซ็นต์', 'Cent') : legacy ? L('เดิม', 'Legacy') : L('ปกติ', 'Standard')}</b><span class="dim">·</span><span>${esc(cur)}</span>${centBadge(cur)}</span>${btn(icon('refresh') + L(' แปลงประเภทบัญชี…', ' Convert account…'), 'acc-convert', { 'data-id': a.id }, 'sm')}</div>
-    <p class="help">${legacy ? L(`บัญชีนี้สร้างไว้ด้วยสกุล ${esc(cur)} ก่อนระบบใหม่ ยังใช้งานได้ตามเดิม · แปลงเป็นบัญชีปกติ (USD) หรือเซ็นต์ (USC) ได้ด้วยอัตราแลกเปลี่ยน`, `Created in ${esc(cur)} before account types — still works · convert it to Standard (USD) or Cent (USC) with an exchange rate`) : L('เปลี่ยนประเภทบัญชีตรงนี้ไม่ได้ — ใช้ “แปลงประเภทบัญชี” เพื่อแปลงยอดเงินและเทรดทั้งหมดไปพร้อมกัน', 'The type can’t be changed here — “Convert account” converts the balance and all trades with it')}</p></div>`;
+  return `<div class="field span2">${lab}<div class="acc-type-lock"><span class="acc-type-v">${icon('lock', 'tiny')}<b>${cent ? 'Standard Cent' : legacy ? L('เดิม', 'Legacy') : 'Standard'}</b><span class="dim">·</span><span>${esc(cur)}</span>${centBadge(cur)}</span>${btn(icon('refresh') + L(' แปลงประเภทบัญชี…', ' Convert account…'), 'acc-convert', { 'data-id': a.id }, 'sm')}</div>
+    <p class="help">${legacy ? L(`บัญชีนี้สร้างไว้ด้วยสกุล ${esc(cur)} ก่อนระบบใหม่ ยังใช้งานได้ตามเดิม · แปลงเป็นบัญชี Standard (USD) หรือ Standard Cent (USC) ได้ด้วยอัตราแลกเปลี่ยน`, `Created in ${esc(cur)} before account types — still works · convert it to Standard (USD) or Standard Cent (USC) with an exchange rate`) : L('เปลี่ยนประเภทบัญชีตรงนี้ไม่ได้ — ใช้ “แปลงประเภทบัญชี” เพื่อแปลงยอดเงินและเทรดทั้งหมดไปพร้อมกัน', 'The type can’t be changed here — “Convert account” converts the balance and all trades with it')}</p></div>`;
 }
 /* snapshot / restore / apply for a whole-account conversion */
 const MONEY_KEYS = ['commission', 'swap', 'grossPnL', 'riskAmount'];
@@ -361,14 +361,15 @@ function convRestore(s) {
   invalidate();
 }
 /* money × mMul, lots × qMul (trades with the broker's own profit keep their lots), fx rates re-based by fxDiv */
-function convApply(accId, toCur, mMul, qMul, fxDiv) {
+function convApply(accId, toCur, mMul, qMul, fxDiv, sMul = 1) {
   const a = get('accounts', accId); if (!a) return 0; let n = 0;
   const r = v => Math.round(v * 1e8) / 1e8;
   a.currency = toCur;
   if (mMul !== 1) { a.startingCapital = r((a.startingCapital || 0) * mMul); for (const t of state.transactions) if (t.accountId === accId && finite(t.amount)) t.amount = r(t.amount * mMul); }
   for (const t of state.trades) {
     if (t.accountId !== accId) continue; let ch = false;
-    if (qMul !== 1 && t.grossPnL == null) { if (t.quantity > 0) { t.quantity = qtyRound(t.quantity * qMul); ch = true; } if (t.executions?.length) t.executions = t.executions.map(x => ({ ...x, quantity: x.quantity > 0 ? qtyRound(x.quantity * qMul) : x.quantity })); }
+    const tq = qMul * (sMul !== 1 && CENT_SCALED.includes((t.instrumentSnapshot?.id === t.instrumentId ? t.instrumentSnapshot : get('instruments', t.instrumentId))?.assetClass) ? sMul : 1); // v3.67: 1 standard lot = 100 cent lots on Forex / Metals
+    if (tq !== 1 && t.grossPnL == null) { if (t.quantity > 0) { t.quantity = qtyRound(t.quantity * tq); ch = true; } if (t.executions?.length) t.executions = t.executions.map(x => ({ ...x, quantity: x.quantity > 0 ? qtyRound(x.quantity * tq) : x.quantity })); }
     if (mMul !== 1) for (const k of MONEY_KEYS) if (finite(t[k]) && t[k]) { t[k] = r(t[k] * mMul); ch = true; }
     if (fxDiv !== 1 && t.fxRate > 0 && t.fxRate !== 1) { t.fxRate = r(t.fxRate / fxDiv); ch = true; }
     if (ch) { t.updatedAt = now(); n++; }
@@ -383,24 +384,25 @@ function convPlan(accId) {
   const money = o.money !== false, lots = !legacy && !!o.lots;
   const mMul = money && rate ? centMul(to) / centMul(from) / rate : 1;
   const qMul = lots ? (isCent(to) ? 1 / 100 : 100) : 1;
-  return { a, from, to, legacy, rate, needRate: fp !== 'USD', money, lots, mMul, qMul, fxDiv: rate || 1 };
+  const sMul = !legacy && money ? (isCent(to) ? 100 : 1 / 100) : 1; // keep the real value: money ×100 ⇒ Forex/Metals cent lots ×100
+  return { a, from, to, legacy, rate, needRate: fp !== 'USD', money, lots, mMul, qMul, sMul, fxDiv: rate || 1 };
 }
 function convPreview(accId, pl) {
   const measure = () => { const closed = state.trades.filter(t => t.accountId === accId && t.status === 'Closed'); return { bal: accountBalance(accId), pnl: sum(closed.map(t => calc(t).net).filter(finite)), start: get('accounts', accId).startingCapital, lots: sum(closed.map(t => t.quantity || 0)), n: closed.length }; };
   if (!pl) return measure();
-  const snap = convSnapshot(accId); convApply(accId, pl.to, pl.mMul, pl.qMul, pl.fxDiv); const out = measure(); convRestore(snap); return out;
+  const snap = convSnapshot(accId); convApply(accId, pl.to, pl.mMul, pl.qMul, pl.fxDiv, pl.sMul); const out = measure(); convRestore(snap); return out;
 }
 function convToolHTML(accId) {
   const pl = convPlan(accId), { a, from, to, legacy } = pl, now0 = convPreview(accId), ok = !pl.needRate || pl.rate, after = ok ? convPreview(accId, pl) : null, undo = state.meta.convUndo?.accId === accId ? state.meta.convUndo : null;
-  const name = c => isCent(c) ? L('เซ็นต์', 'Cent') + ' (' + c + ')' : c === 'USD' ? L('ปกติ', 'Standard') + ' (USD)' : c;
+  const name = c => isCent(c) ? 'Standard Cent' + ' (' + c + ')' : c === 'USD' ? 'Standard' + ' (USD)' : c;
   const row = (k, f0, f1) => `<tr><td>${k}</td><td class="num">${f0}</td><td class="num"><b>${f1}</b></td></tr>`, dash = '<span class="dim">—</span>';
   const mf = (v, c) => money(v, c, false), pf = (v, c) => money(v, c, true), lf = v => fmt(v, 2);
   return `<div class="conv-flow"><span class="conv-pill">${esc(name(from))}</span>${icon('chev-right')}<span class="conv-pill on">${esc(name(to))}</span></div>
-    ${legacy ? `<div class="field mb12"><label>${L('แปลงเป็น', 'Convert to')}</label><div class="seg acc-units" role="radiogroup"><label><input type="radio" name="convTo" value="USD" data-action="conv-opt" data-k="to" ${to === 'USD' ? 'checked' : ''}><span>${L('ปกติ', 'Standard')} · USD</span></label><label><input type="radio" name="convTo" value="USC" data-action="conv-opt" data-k="to" ${to === 'USC' ? 'checked' : ''}><span>${L('เซ็นต์', 'Cent')} · USC</span></label></div></div>` : ''}
+    ${legacy ? `<div class="field mb12"><label>${L('แปลงเป็น', 'Convert to')}</label><div class="seg acc-units" role="radiogroup"><label><input type="radio" name="convTo" value="USD" data-action="conv-opt" data-k="to" ${to === 'USD' ? 'checked' : ''}><span>${'Standard'} · USD</span></label><label><input type="radio" name="convTo" value="USC" data-action="conv-opt" data-k="to" ${to === 'USC' ? 'checked' : ''}><span>${'Standard Cent'} · USC</span></label></div></div>` : ''}
     ${pl.needRate ? `<div class="field mb12"><label for="conv-rate">${L('อัตราแลกเปลี่ยน', 'Exchange rate')}</label><div class="fx-row"><label for="conv-rate">1 USD =</label><input id="conv-rate" type="number" step="any" min="0" inputmode="decimal" data-action="conv-opt" data-k="rate" value="${pl.rate ?? ''}" placeholder="${L('เช่น 33.5', 'e.g. 33.5')}"><span>${esc(centParent(from))}</span></div><p class="help">${L('ใช้แปลงยอดเงิน และอัตราแลกเปลี่ยนในเทรดที่กรอกไว้', 'Converts the money and any FX rate typed on trades')}</p></div>` : ''}
     <div class="spec-opts mb16">
-      <label class="spec-opt"><input type="checkbox" class="cb" data-action="conv-opt" data-k="money" ${pl.money ? 'checked' : ''}><div><b>${legacy ? L('แปลงจำนวนเงินตามอัตราแลกเปลี่ยน', 'Convert money at the exchange rate') : isCent(to) ? L('คูณจำนวนเงินด้วย 100 (USD → USC)', 'Multiply money by 100 (USD → USC)') : L('หารจำนวนเงินด้วย 100 (USC → USD)', 'Divide money by 100 (USC → USD)')}</b><small>${L('ทุนเริ่มต้น ฝาก/ถอน ค่าคอมมิชชัน สวอป และกำไรที่นำเข้าจากโบรกเกอร์ — มูลค่าเท่าเดิม แค่เปลี่ยนหน่วย · ปิดไว้ถ้าตัวเลขที่กรอกเป็นหน่วยใหม่อยู่แล้ว', 'Starting capital, deposits/withdrawals, commission, swap and imported broker profit — same value, new unit · turn off if the numbers are already in the new unit')}</small></div></label>
-      ${legacy ? '' : `<label class="spec-opt"><input type="checkbox" class="cb" data-action="conv-opt" data-k="lots" ${pl.lots ? 'checked' : ''}><div><b>${isCent(to) ? L('หารจำนวนล็อตด้วย 100', 'Divide lots by 100') : L('คูณจำนวนล็อตด้วย 100', 'Multiply lots by 100')}</b><small>${isCent(to) ? L('ใช้เฉพาะเมื่อเคยกรอกล็อตเกินจริงเพื่อให้ตัวเลขตรงกับ MT5 บัญชีเซ็นต์ (เช่น กรอก 10 แทน 0.1)', 'Only if lots were typed 100× too big to match the MT5 cent account (e.g. 10 instead of 0.1)') : L('ใช้เฉพาะเมื่อต้องการให้กำไรเป็นดอลลาร์เท่ากับตัวเลขเซ็นต์เดิม', 'Only if the dollar profit should equal the old cent figures')} · ${L('เทรดที่นำเข้าพร้อมกำไรจากโบรกเกอร์ไม่ถูกแตะ', 'trades imported with broker profit are left alone')}</small></div></label>`}
+      <label class="spec-opt"><input type="checkbox" class="cb" data-action="conv-opt" data-k="money" ${pl.money ? 'checked' : ''}><div><b>${legacy ? L('แปลงจำนวนเงินตามอัตราแลกเปลี่ยน', 'Convert money at the exchange rate') : isCent(to) ? L('คูณจำนวนเงินด้วย 100 (USD → USC)', 'Multiply money by 100 (USD → USC)') : L('หารจำนวนเงินด้วย 100 (USC → USD)', 'Divide money by 100 (USC → USD)')}</b><small>${legacy ? '' : isCent(to) ? L('ล็อตของ Forex / Metals คูณ 100 ด้วย (1 ล็อต Standard = 100 ล็อต Cent) · ', 'Forex / Metals lots ×100 too (1 standard lot = 100 cent lots) · ') : L('ล็อตของ Forex / Metals หาร 100 ด้วย · ', 'Forex / Metals lots ÷100 too · ')}${L('ทุนเริ่มต้น ฝาก/ถอน ค่าคอมมิชชัน สวอป และกำไรที่นำเข้าจากโบรกเกอร์ — มูลค่าเท่าเดิม แค่เปลี่ยนหน่วย · ปิดไว้ถ้าตัวเลขที่กรอกเป็นหน่วยใหม่อยู่แล้ว', 'Starting capital, deposits/withdrawals, commission, swap and imported broker profit — same value, new unit · turn off if the numbers are already in the new unit')}</small></div></label>
+      ${legacy ? '' : `<label class="spec-opt"><input type="checkbox" class="cb" data-action="conv-opt" data-k="lots" ${pl.lots ? 'checked' : ''}><div><b>${isCent(to) ? L('หารจำนวนล็อตด้วย 100', 'Divide lots by 100') : L('คูณจำนวนล็อตด้วย 100', 'Multiply lots by 100')}</b><small>${isCent(to) ? L('ใช้เฉพาะเมื่อเคยกรอกล็อตเกินจริงเพื่อให้ตัวเลขตรงกับ MT5 บัญชี Standard Cent (เช่น กรอก 10 แทน 0.1)', 'Only if lots were typed 100× too big to match the MT5 Standard Cent account (e.g. 10 instead of 0.1)') : L('ใช้เฉพาะเมื่อต้องการให้กำไรเป็นดอลลาร์เท่ากับตัวเลขเซ็นต์เดิม', 'Only if the dollar profit should equal the old cent figures')} · ${L('เทรดที่นำเข้าพร้อมกำไรจากโบรกเกอร์ไม่ถูกแตะ', 'trades imported with broker profit are left alone')}</small></div></label>`}
     </div>
     <div class="tablewrap"><table class="recalc-t"><thead><tr><th></th><th class="num">${L('ตอนนี้', 'Now')} · ${esc(from)}</th><th class="num">${L('หลังแปลง', 'After')} · ${esc(to)}</th></tr></thead><tbody>
       ${row(L('ทุนเริ่มต้น', 'Starting capital'), mf(now0.start, from), after ? mf(after.start, to) : dash)}${row(L('กำไรจากการเทรด', 'Trading P&L'), pf(now0.pnl, from), after ? pf(after.pnl, to) : dash)}${row(L('ล็อตรวม', 'Total lots'), lf(now0.lots), after ? lf(after.lots) : dash)}${row(`<b>${L('ยอดเงินปัจจุบัน', 'Balance')}</b>`, mf(now0.bal, from), after ? mf(after.bal, to) : dash)}
@@ -420,7 +422,7 @@ Object.assign(SPEC_ACTIONS, {
   'conv-apply': async el => {
     const id = el.dataset.id, pl = convPlan(id);
     if (pl.needRate && !pl.rate) { toast(L('ใส่อัตราแลกเปลี่ยนก่อน', 'Enter the exchange rate first'), 'bad'); $('#conv-rate')?.focus(); return; }
-    state.meta.convUndo = convSnapshot(id); const n = convApply(id, pl.to, pl.mMul, pl.qMul, pl.fxDiv);
+    state.meta.convUndo = convSnapshot(id); const n = convApply(id, pl.to, pl.mMul, pl.qMul, pl.fxDiv, pl.sMul);
     closeModal(); await changed(L(`แปลงบัญชีเป็น ${pl.to} แล้ว (${n} เทรด) — ย้อนกลับได้จากเมนูบัญชี`, `Account converted to ${pl.to} (${n} trades) — undo from the account menu`));
     if ($('#calc-form')) updateCalc();
   },
@@ -430,11 +432,14 @@ document.addEventListener('change', e => { const t = e.target; if (t?.dataset?.a
 document.addEventListener('input', e => { const t = e.target; if (t?.id === 'conv-rate') { ui.convOpt = { ...(ui.convOpt || {}), rate: t.value }; clearTimeout(convRefresh.t); convRefresh.t = setTimeout(convRefresh, 250); } });
 
 /* v3.55 — Insights metrics card: click a column header to sort the groups */
+Object.assign(SPEC_ACTIONS, { 'ins-sess-by': el => { ui.insSessBy = el.dataset.value === 'hour' ? 'hour' : 'session'; renderMain(); } });
 Object.assign(SPEC_ACTIONS, { 'bd-sort': el => { ui.breakdownMetric = el.dataset.k; try { savePrefs(); } catch { } renderMain(); } });
 /* v3.58 — globe icon for the language switch in the slide-out menu */
 ICONS.globe = ICONS.globe || '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>';
 
 /* v3.58 — collapse a section card in the trade sidebar */
+Object.assign(SPEC_ACTIONS, { 'ftab': el => { const root = el.closest('form, .modal, .panel') || document; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); root.querySelectorAll('[data-fp]').forEach(p => p.hidden = p.dataset.fp !== el.dataset.value); } });
+Object.assign(SPEC_ACTIONS, { 'td-tab': el => { ui.tdTab = el.dataset.value === 'review' ? 'review' : 'info'; const root = el.closest('.tds'); root?.querySelectorAll('.td-tabs button').forEach(b => b.classList.toggle('on', b === el)); root?.querySelectorAll('[data-tdp]').forEach(p => p.hidden = p.dataset.tdp !== ui.tdTab); } });
 Object.assign(SPEC_ACTIONS, { 'td-col': el => el.closest('.tds-box')?.classList.toggle('collapsed') });
 
 /* ============================================================
@@ -505,3 +510,264 @@ document.addEventListener('toggle', e => {
 }, true);
 const closeLifted = () => $$('details.menu[open] > .menu-pop.lifted').forEach(p => p.parentElement.removeAttribute('open'));
 window.addEventListener('scroll', closeLifted, true); window.addEventListener('resize', closeLifted);
+
+/* ============================================================
+   v3.62 — PROFILE: display name + avatar (stored small, square, in settings so it syncs with the cloud edition)
+   ============================================================ */
+const profileName = () => (state?.settings?.profile?.name || '').trim() || 'EdgeDesk';
+function profileInitials() {
+  const n = (state?.settings?.profile?.name || '').trim(); if (!n) return 'ED';
+  const w = n.split(/\s+/).filter(Boolean); const first = s => [...s][0] || '';
+  return (w.length > 1 ? first(w[0]) + first(w[w.length - 1]) : [...w[0]].slice(0, 2).join('')).toUpperCase();
+}
+function avatarHTML(cls = '', src) {
+  const img = src !== undefined ? src : state?.settings?.profile?.avatar;
+  return `<span class="avatar ${cls} ${img ? '' : 'av-ic'}">${img ? `<img src="${esc(img)}" alt="">` : icon('user')}</span>`; // v3.69: default = Material user icon
+}
+/* center-crop to a square and shrink (keeps settings small) */
+function avatarFromFile(f, size = 256) {
+  return new Promise((res, rej) => {
+    if (!f?.type?.startsWith('image/')) return rej(new Error('not an image'));
+    const url = URL.createObjectURL(f), im = new Image();
+    im.onload = () => { try { const s = Math.min(im.naturalWidth, im.naturalHeight), c = document.createElement('canvas'); c.width = c.height = size; const x = c.getContext('2d'); x.fillStyle = '#1a1a1a'; x.fillRect(0, 0, size, size); x.imageSmoothingQuality = 'high'; x.drawImage(im, (im.naturalWidth - s) / 2, (im.naturalHeight - s) / 2, s, s, 0, 0, size, size); res(c.toDataURL('image/jpeg', .86)); } catch (e) { rej(e); } finally { URL.revokeObjectURL(url); } };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); }; im.src = url;
+  });
+}
+function profileBody() {
+  const p = window.__prof;
+  return `<div class="prof-top"><button type="button" class="prof-pic" data-action="profile-pick" aria-label="${L('เปลี่ยนรูป', 'Change photo')}">${avatarHTML('prof-av', p.avatar || '').replace(`<b>${esc(profileInitials())}</b>`, `<b>${esc(p.name ? profileInitialsOf(p.name) : 'ED')}</b>`)}<span class="prof-cam">${icon('image')}</span></button>
+    <div class="prof-acts">${btn(icon('upload') + L(' อัปโหลดรูป', ' Upload photo'), 'profile-pick', {}, 'sm')}${p.avatar ? btn(icon('trash') + L(' ลบรูป', ' Remove'), 'profile-unpic', {}, 'sm ghost danger') : ''}<p class="help">${L('JPG / PNG / WebP · ครอปเป็นสี่เหลี่ยมจัตุรัสให้อัตโนมัติ · ลากรูปมาวางที่วงกลมได้', 'JPG / PNG / WebP · cropped to a square automatically · you can drop an image on the circle')}</p></div></div>
+    <form id="profile-form" onsubmit="return false"><div class="formgrid">${field('profName', L('ชื่อที่แสดง', 'Display name'), p.name || '', 'text', { placeholder: L('เช่น สมชาย ใจดี', 'e.g. Alex Morgan'), attrs: 'maxlength="60" autocomplete="name"', tip: L('ใช้ในเมนู คำทักทายบนหน้าภาพรวม และรายงานที่ส่งออก', 'Shown in the menu, the dashboard greeting and exported reports') })}${field('profTag', L('คำอธิบายสั้น', 'Tagline'), p.tagline || '', 'text', { placeholder: L('เช่น Swing trader · XAUUSD', 'e.g. Swing trader · XAUUSD'), attrs: 'maxlength="80"' })}</div></form>`;
+}
+const profileInitialsOf = n => { const w = n.trim().split(/\s+/).filter(Boolean); const f = s => [...s][0] || ''; return w.length ? (w.length > 1 ? f(w[0]) + f(w[w.length - 1]) : [...w[0]].slice(0, 2).join('')).toUpperCase() : 'ED'; };
+function openProfile() {
+  A['menu-close']?.();
+  window.__prof = { ...(state.settings.profile || {}) };
+  openModal({ title: L('โปรไฟล์', 'Profile'), size: 'sm', body: `<div id="prof-body">${profileBody()}</div>`, foot: `<div class="grow"></div>${btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost')}${btn(icon('save') + L(' บันทึก', ' Save'), 'profile-save', {}, 'primary')}`, onClose: () => { window.__prof = null; } });
+}
+const profRefresh = () => { const b = $('#prof-body'); if (!b) return; const n = $('#f_profName')?.value, t = $('#f_profTag')?.value; if (n != null) window.__prof.name = n; if (t != null) window.__prof.tagline = t; b.innerHTML = profileBody(); };
+async function profileSetFile(f) { try { window.__prof.avatar = await avatarFromFile(f); profRefresh(); } catch { toast(L('อ่านไฟล์รูปไม่ได้', 'Could not read that image'), 'bad'); } }
+Object.assign(SPEC_ACTIONS, {
+  'profile-open': () => openProfile(),
+  'profile-pick': () => pickFile('image/*', f => profileSetFile(f)),
+  'profile-unpic': () => { window.__prof.avatar = ''; profRefresh(); },
+  'profile-save': async () => {
+    const p = window.__prof || {}, name = String($('#f_profName')?.value || '').trim().slice(0, 60), tagline = String($('#f_profTag')?.value || '').trim().slice(0, 80);
+    state.settings.profile = { name, tagline, avatar: p.avatar || '' }; closeModal(); await changed(L('บันทึกโปรไฟล์แล้ว', 'Profile saved'));
+  },
+});
+document.addEventListener('input', e => { if (e.target?.id === 'f_profName' && window.__prof) { window.__prof.name = e.target.value; const av = $('#prof-body .prof-av b'); if (av) av.textContent = profileInitialsOf(e.target.value || 'ED'); } });
+document.addEventListener('dragover', e => { if (e.target.closest?.('.prof-pic')) { e.preventDefault(); e.target.closest('.prof-pic').classList.add('drop'); } });
+document.addEventListener('dragleave', e => { e.target.closest?.('.prof-pic')?.classList.remove('drop'); });
+document.addEventListener('drop', e => { const t = e.target.closest?.('.prof-pic'); if (!t) return; e.preventDefault(); t.classList.remove('drop'); const f = [...(e.dataTransfer?.files || [])].find(x => x.type.startsWith('image/')); if (f) profileSetFile(f); });
+
+/* ============================================================
+   v3.63 — SETTINGS › EXCHANGE RATES (US$): Federal Reserve H.10 reference + your own overrides
+   ============================================================ */
+/* every currency pair the journal needs (trade value currency → account currency), with the trade count */
+function fxPairsInUse() {
+  const m = new Map();
+  for (const t of state.trades) {
+    if (t.status === 'Missed') continue; const i = specOf(t), ac = get('accounts', t.accountId)?.currency, vc = i?.valueCurrency || i?.quoteCurrency;
+    if (!i || !ac || !fxNeededFor(vc, ac)) continue; const k = vc + ':' + centParent(ac); m.set(k, (m.get(k) || 0) + 1);
+  }
+  for (const a of state.accounts) { const p = centParent(a.currency); if (p && p !== 'USD' && !m.has('USD:' + p)) m.set('USD:' + p, 0); }
+  for (const k of Object.keys(state.settings.fxRates || {})) if (!m.has(k)) m.set(k, 0);
+  return m;
+}
+/* v3.74 — currency flag (from the icon library) */
+const CUR_CC = { USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp', AUD: 'au', CAD: 'ca', CHF: 'ch', NZD: 'nz', HKD: 'hk', CNY: 'cn', SGD: 'sg', THB: 'th', BRL: 'br', DKK: 'dk', INR: 'in', KRW: 'kr', LKR: 'lk', MXN: 'mx', MYR: 'my', NOK: 'no', SEK: 'se', TWD: 'tw', ZAR: 'za' };
+function curFlag(c) { const img = libSlot(CUR_CC[String(c || '').toUpperCase()] || ''); return `<span class="ins-ic cur-fl"><span class="disc">${img || `<b>${esc(String(c || '').slice(0, 2))}</b>`}</span></span>`; }
+const tipI = t => `<span class="info-tip" data-tip="${esc(t)}">${icon('info', 'tiny')}</span>`;
+const fxNum = v => finite(v) ? (+v.toPrecision(6)).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—';
+function fxSettings() {
+  const use = fxPairsInUse(), mine = state.settings.fxRates || {}, auto = state.settings.fxAuto !== false, missing = missingFxPairs();
+  const d = (k, o = {}) => fmtDate(k, o);
+  const head = `<div class="fx-src"><div class="fx-src-l">${icon('globe')}<div><b>Federal Reserve · H.10 Foreign Exchange Rates</b><small>${L('ประกาศ', 'Released')} ${d(FED_H10.release)} · ${L('อัตรา ณ วันที่', 'rates as of')} ${d(FED_H10.asOf)} · ${L('อัตราซื้อเงินสดตอนเที่ยง นิวยอร์ก', 'noon buying rates in New York')}</small></div></div><a class="btn sm" href="${FED_H10.url}" target="_blank" rel="noopener noreferrer">${icon('external')}${L(' เปิดหน้า FED', ' Open FED page')}</a></div>
+    <div class="fx-auto"><div><b>${L('ใช้อัตรา FED อัตโนมัติ', 'Use FED rates automatically')}</b><small>${L('เมื่อเทรดหรือบัญชีต้องแปลงสกุลเงินแต่ยังไม่ได้กำหนดอัตราเอง · อัตราที่กรอกเองในเทรดหรือด้านล่างจะถูกใช้ก่อนเสมอ', 'When a trade or account needs a conversion you have not set · a rate typed on the trade or below always wins')}</small></div>${seg([['on', L('เปิด', 'On')], ['off', L('ปิด', 'Off')]], auto ? 'on' : 'off', 'fx-auto')}</div>`;
+  const rows = [...use].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => {
+    const [f, t] = k.split(':'), fed = fedCross(f, t), own = mine[k], usingOwn = own > 0, eff = defaultFx(f, t), miss = missing.has(k);
+    const st = usingOwn ? `<span class="badge acc">${L('กำหนดเอง', 'Custom')}</span>` : eff ? `<span class="badge pos">FED</span>` : `<span class="badge neg">${L('ยังไม่มีอัตรา', 'Missing')}</span>`;
+    return `<tr class="${miss ? 'fx-miss' : ''}"><td><div class="fx-pair">${curFlag(f)}${curFlag(t)}<div><b>1 ${esc(f)}</b> → ${esc(t)}<small>${esc(curName(f))} → ${esc(curName(t))}</small></div></div></td><td class="num">${fed ? fxNum(fed) : '<span class="dim">—</span>'}</td><td class="num"><input class="fx-in" type="number" step="any" min="0" inputmode="decimal" data-fx-pair="${esc(k)}" value="${own ?? ''}" placeholder="${fed ? fxNum(fed).replace(/,/g, '') : L('กรอกอัตรา', 'enter rate')}"></td><td>${st}</td><td class="num">${n ? `${n} ${L('เทรด', 'trades')}` : '<span class="dim">—</span>'}</td></tr>`;
+  }).join('');
+  const used = rows ? `<div class="tablewrap"><table class="fx-t"><thead><tr><th>${L('คู่สกุลเงิน', 'Pair')}</th><th class="num">FED</th><th class="num">${L('อัตรา US', 'US Rate')} ${tipI(L('อัตราที่ใช้ (เว้นว่าง = FED)', 'Your rate (blank = FED)'))}</th><th>${L('ที่มา', 'Source')}</th><th class="num">${L('ใช้ใน', 'Used by')}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="dim">${L('ยังไม่มีเทรดหรือบัญชีที่ต้องแปลงสกุลเงิน', 'Nothing needs a conversion yet')}</p>`;
+  const all = Object.keys(FED_H10.rates).sort().map(c => { const r = FED_H10.rates[c], u = fedUsdPer(c); return `<tr><td><div class="fx-pair">${curFlag(c)}<div><b>${c}</b> <span class="dim">${esc(curName(c))}</span></div></div></td><td class="num">${fxNum(u)}</td><td class="num">${fxNum(1 / u)}</td><td class="dim small">${r[1] ? L('ประกาศเป็น US$ ต่อหน่วย', 'quoted US$ per unit') : L('ประกาศเป็นหน่วยต่อ US$', 'quoted per US$')}</td></tr>`; }).join('');
+  return `<section class="panel flush mb16 fx-head"><div class="panel-b">${head}</div></section>
+    ${panel(L('คู่สกุลเงินที่แอปใช้', 'Pairs your journal uses') + (missing.size ? '' : ' ' + tipI(L('1 หน่วยของสกุลซ้าย = กี่หน่วยของสกุลขวา · อัตราในแต่ละเทรดใช้ก่อนเสมอ', '1 unit on the left = how many on the right · a rate on the trade itself always wins'))), used, `${btn(icon('save') + L(' บันทึก', ' Save'), 'fx-save', {}, 'primary sm')}`, 'flush mb16', missing.size ? L(`${sum([...missing.values()])} เทรดยังคำนวณเงินไม่ได้ — ใส่อัตราหรือเปิดใช้ FED`, `${sum([...missing.values()])} trades can’t be valued yet — enter a rate or turn FED on`) : '')}
+    ${panel(L('อัตรา FED ทั้งหมด (เทียบ US$)', 'All FED rates (vs US$)') + ' ' + tipI(L('ใช้คำนวณคู่ไขว้ผ่านดอลลาร์ เช่น EUR → THB = (US$ ต่อ EUR) × (THB ต่อ US$)', 'Crosses go through the dollar, e.g. EUR → THB = (US$ per EUR) × (THB per US$)')), `<div class="tablewrap"><table class="fx-t"><thead><tr><th>${L('สกุลเงิน', 'Currency')}</th><th class="num">${L('1 หน่วย = US$', '1 unit = US$')}</th><th class="num">${L('1 US$ = หน่วย', '1 US$ = units')}</th><th></th></tr></thead><tbody>${all}</tbody></table></div>`, '', 'flush')}`;
+}
+Object.assign(SPEC_ACTIONS, { 'fx-auto': async el => { state.settings.fxAuto = el.dataset.value === 'on'; invalidate(); await changed(el.dataset.value === 'on' ? L('ใช้อัตรา FED อัตโนมัติแล้ว', 'FED rates on') : L('ปิดอัตรา FED อัตโนมัติ', 'FED rates off')); } });
+
+/* ---------- v3.64 — Instrument spec for Cent accounts: a Standard | Cent switch in the instrument editor ----------
+   Cent fields are stored in i.cent and only apply to trades in USC / EUC accounts; a blank field = same as Standard */
+const CENT_NOTE = c => c ? L('ใช้กับบัญชี Standard Cent (USC / EUC) · ช่องที่เว้นว่างจะใช้ค่าเดียวกับ Standard · Forex และ Metals ใช้ขนาดสัญญา ÷ 100 อัตโนมัติ (1 ล็อต Cent = 1/100 ล็อต Standard) · กำไร/ขาดทุนแปลง USD → USC ×100', 'Used for Standard Cent accounts (USC / EUC) · blank fields use the Standard value · Forex and Metals use contract size ÷ 100 automatically (1 cent lot = 1/100 standard lot) · P&L converts USD → USC ×100') : L('ใช้กับบัญชี Standard (USD, EUR …)', 'Used for Standard accounts (USD, EUR …)');
+/* v3.73 — notes live in ⓘ tooltips instead of small text under the labels */
+function noteTip(text, id = '') { return `<span class="info-tip ins-kv-n" ${id ? `id="${id}"` : ''} data-tip="${esc(text)}" ${text ? '' : 'hidden'}>${icon('info', 'tiny')}</span>`; }
+function setTip(id, text) { const el = $('#' + id); if (el) { el.dataset.tip = text || ''; el.hidden = !text; const t = el._ulT; if (t) { if (text) { t.dataset.tip = text; t.classList.add('ul-tip'); } else { delete t.dataset.tip; t.classList.remove('ul-tip'); } } } }
+function insAcctBar(i) {
+  const has = Object.keys(centOverrides(i)).length;
+  return `<div class="ins-acct mb16">${noteTip(CENT_NOTE(false), 'ins-acct-note')}<div class="seg" role="group" aria-label="${L('สเปกตามประเภทบัญชี', 'Spec by account type')}"><button type="button" class="on" data-action="ins-acct" data-value="std">${'Standard'}</button><button type="button" data-action="ins-acct" data-value="cent">${'Standard Cent'}${has ? `<i class="ins-acct-dot" title="${L('ตั้งค่าสเปก Standard Cent แล้ว', 'Standard Cent spec set')}"></i>` : ''}</button></div></div>`;
+}
+function centField(i, k, label, cls = '') {
+  const sv = i[k], ph = sv != null && sv !== '' ? L('เท่ากับ Standard · ', 'Same as Standard · ') + sv : L('เท่ากับ Standard', 'Same as Standard');
+  return field('cent_' + k, `${label} <span class="cent-tag">Standard Cent</span>`, i.cent?.[k] ?? '', 'number', { cls: 'acct-cent ' + cls, placeholder: ph });
+}
+function centKvs(i) {
+  const row = (lab, note, input) => `<div class="ins-kv"><label>${lab}${note}</label><i class="ins-lead"></i><div class="ins-kv-v">${input}</div></div>`;
+  return `<div class="ins-kvs acct-cent">`
+    + row(gl(L('ขนาดติ๊ก', 'Tick size'), 'tickSize'), noteTip(L('เหมือน Standard', 'Same as Standard')), `<input id="ins-c-ts" type="text" readonly tabindex="-1" class="kv-ro">`)
+    + row(gl(L('มูลค่าต่อติ๊ก', 'Tick value'), 'tickValue'), noteTip('', 'ins-c-tvn'), `<input id="f_cent_tickValue" name="cent_tickValue" type="number" step="any" value="${esc(i.cent?.tickValue ?? '')}">`)
+    + row(L('มูลค่าต่อปิ๊บ', 'Pip value'), noteTip('', 'ins-c-pvc'), `<input id="ins-c-pv" type="text" readonly tabindex="-1" class="kv-ro">`)
+    + row(L('ในบัญชี Standard Cent', 'In the Standard Cent account'), noteTip(L('1 ล็อต · ราคาขยับ 1 ปิ๊บ', '1 lot · 1 pip move')), `<input id="ins-c-usc" type="text" readonly tabindex="-1" class="kv-ro">`) + `</div>`;
+}
+function centSync() {
+  const f = $('#ins-form'); if (!f || !f.cent_contractSize) return;
+  const fut = f.calcMode?.value === 'Futures', sv = k => num(f[k]?.value), cv = k => num(f['cent_' + k]?.value);
+  for (const k of CENT_SPEC_KEYS) { const el = f['cent_' + k], v = f[k]?.value; if (!el || k === 'tickValue') continue; el.placeholder = k === 'contractSize' && ['Forex', 'Metals'].includes(f.assetClass?.value) && num(v) > 0 ? L('อัตโนมัติ · ', 'Auto · ') + +(num(v) / 100).toPrecision(12) + L(' (Standard ÷ 100)', ' (Standard ÷ 100)') : v != null && v !== '' ? L('เท่ากับ Standard · ', 'Same as Standard · ') + v : L('เท่ากับ Standard', 'Same as Standard'); }
+  const autoCs = ['Forex', 'Metals'].includes(f.assetClass?.value) && sv('contractSize') > 0 ? +(sv('contractSize') / 100).toPrecision(12) : null, ts = sv('tickSize'), cs = cv('contractSize') ?? autoCs ?? sv('contractSize'), tv = f.cent_tickValue;
+  if (!fut) { tv.value = cs > 0 && ts > 0 ? String(+(cs * ts).toPrecision(10)) : ''; tv.dataset.auto = '1'; } else if (tv.dataset.auto) { tv.value = ''; delete tv.dataset.auto; }
+  tv.readOnly = !fut; tv.tabIndex = fut ? 0 : -1; tv.classList.toggle('kv-ro', !fut); tv.placeholder = fut ? L('เท่ากับ Standard · ', 'Same as Standard · ') + (f.tickValue.value || '—') : '';
+  setTip('ins-c-tvn', fut ? L('ตาม Specification ของ Standard Cent', 'From the Standard Cent specification') : L('ขนาดสัญญา Standard Cent × ขนาดติ๊ก', 'Standard Cent contract size × tick size'));
+  const tvv = num(tv.value) || (fut ? sv('tickValue') : null), pip = sv('pipSize'), mul = sv('multiplier') || 1, pv = tvv > 0 && ts > 0 ? tvv / ts * (pip || ts) * mul : null, vc = (f.valueCurrency?.value || f.quoteCurrency?.value || '').toUpperCase();
+  const set = (id, v) => { const el = $('#' + id); if (el) { if ('value' in el && el.tagName === 'INPUT') el.value = v; else el.textContent = v; } };
+  set('ins-c-ts', f.tickSize.value || ''); set('ins-c-pv', finite(pv) ? String(+pv.toFixed(6)) : ''); setTip('ins-c-pvc', finite(pv) ? L(`${vc} ต่อ 1 ล็อต`, `${vc} per lot`) : '');
+  const cc = Object.entries(CENT).find(([, p]) => p === vc)?.[0];
+  set('ins-c-usc', finite(pv) ? (cc ? `${fmt(pv * 100, 2)} ${cc}` : `${fmt(pv, 4)} ${vc} × FX × 100`) : '');
+}
+Object.assign(SPEC_ACTIONS, {
+  'ins-acct': el => { const f = $('#ins-form'); if (!f) return; const c = el.dataset.value === 'cent'; f.classList.toggle('cent-on', c); el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); setTip('ins-acct-note', CENT_NOTE(c)); centSync(); },
+});
+
+/* v3.70 — donut: hover (or tap / click) a slice or its legend row → the count shows in the centre and in a tooltip */
+function dnShow(fig, i, ev) {
+  const c = fig?.querySelector('.dn-c'); if (!c) return; const segs = [...fig.querySelectorAll('.dseg')], seg = segs.find(x => x.dataset.i === String(i));
+  segs.forEach(x => x.classList.toggle('dim', !!seg && x !== seg)); fig.closest('.ins-donut')?.querySelectorAll('.dn-row').forEach(r => r.classList.toggle('on', !!seg && r.dataset.dn === String(i)));
+  if (!seg) { c.innerHTML = `<b>${esc(c.dataset.tot)}</b><span>${esc(c.dataset.unit)}</span>`; chartTip(''); return; }
+  c.innerHTML = `<b>${fmt(+seg.dataset.v, 0)}</b><span>${esc(c.dataset.unit)} · ${fmt(+seg.dataset.p, 0)}%</span><small>${esc(seg.dataset.l)}</small>`;
+  if (ev) chartTip(`<b>${esc(seg.dataset.l)}</b><div>${fmt(+seg.dataset.v, 0)} ${esc(c.dataset.unit)} · ${fmt(+seg.dataset.p, 1)}%</div>`, ev.clientX, ev.clientY);
+}
+document.addEventListener('mouseover', e => { const seg = e.target.closest?.('.dn-fig .dseg'); if (seg) return dnShow(seg.closest('.dn-fig'), seg.dataset.i, e); const row = e.target.closest?.('.ins-donut .dn-row'); if (row) return dnShow(row.closest('.ins-donut').querySelector('.dn-fig'), row.dataset.dn); });
+document.addEventListener('mouseout', e => { const from = e.target.closest?.('.dn-fig .dseg, .ins-donut .dn-row'); if (!from) return; const to = e.relatedTarget?.closest?.('.dn-fig .dseg, .ins-donut .dn-row'); const box = from.closest('.ins-donut'); if (to && box?.contains(to)) return; if (box?.dataset.pin) return dnShow(box.querySelector('.dn-fig'), box.dataset.pin); dnShow(box?.querySelector('.dn-fig') || from.closest('.dn-fig'), null); });
+document.addEventListener('click', e => { const seg = e.target.closest?.('.dn-fig .dseg'); if (!seg) return; const box = seg.closest('.ins-donut'); if (box) { box.dataset.pin = box.dataset.pin === seg.dataset.i ? '' : seg.dataset.i; if (!box.dataset.pin) delete box.dataset.pin; } dnShow(seg.closest('.dn-fig'), box?.dataset.pin ?? seg.dataset.i, e); });
+document.addEventListener('mousemove', e => { const seg = e.target.closest?.('.dn-fig .dseg'); if (!seg) return; const c = seg.closest('.dn-fig').querySelector('.dn-c'); chartTip(`<b>${esc(seg.dataset.l)}</b><div>${fmt(+seg.dataset.v, 0)} ${esc(c?.dataset.unit || '')} · ${fmt(+seg.dataset.p, 1)}%</div>`, e.clientX, e.clientY); });
+/* ---------- v3.71 — one dropdown style across the app: every <select> opens a list like the instrument picker ---------- */
+const CSEL_FINE = () => { try { return matchMedia('(pointer: fine)').matches; } catch { return true; } };
+function cselClose() { const c = window.__csel; if (!c) return; c.pop.remove(); c.sel.classList.remove('csel-open'); window.__csel = null; }
+function cselOpen(sel) {
+  cselClose();
+  const anchor = sel.closest('.ed-pb, .sc-it') || sel, r = anchor.getBoundingClientRect(), pop = document.createElement('div');
+  pop.className = 'csel-pop'; pop.setAttribute('role', 'listbox');
+  const insSel = /instrumentId/.test(sel.name || sel.dataset.k || ''); // v3.75: instrument lists show their icons
+  let k = 0; const row = o => { const i = k++; if (o.hidden) return ''; const ins = insSel && o.value ? get('instruments', o.value) : null, ic = insSel ? (ins ? insIcon(ins) : `<span class="csel-ic">${icon('layers')}</span>`) : ''; return `<button type="button" role="option" class="csel-opt ${o.selected ? 'on' : ''} ${insSel ? 'has-ic' : ''}" data-i="${i}" ${o.disabled ? 'disabled' : ''} aria-selected="${o.selected}">${ic}<span>${esc(o.textContent)}</span>${o.selected ? icon('check') : ''}</button>`; };
+  pop.innerHTML = [...sel.children].map(c => c.tagName === 'OPTGROUP' ? `<div class="csel-grp">${esc(c.label)}</div>${[...c.children].map(row).join('')}` : row(c)).join('');
+  document.body.append(pop);
+  const below = innerHeight - r.bottom - 10, above = r.top - 10, up = below < 180 && above > below, maxH = Math.max(120, Math.min(340, up ? above : below));
+  pop.style.minWidth = Math.max(r.width, 160) + 'px'; pop.style.maxHeight = maxH + 'px';
+  const w = pop.offsetWidth; pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  pop.style.top = (up ? r.top - Math.min(pop.scrollHeight, maxH) - 4 : r.bottom + 4) + 'px';
+  sel.classList.add('csel-open'); window.__csel = { sel, pop };
+  pop.querySelector('.csel-opt.on')?.scrollIntoView({ block: 'nearest' }); pop.querySelector('.csel-opt.on')?.classList.add('act');
+}
+function cselPick(i) { const c = window.__csel; if (!c) return; const opts = [...c.sel.querySelectorAll('option')]; if (opts[i] && !opts[i].disabled) { c.sel.selectedIndex = i; c.sel.dispatchEvent(new Event('input', { bubbles: true })); c.sel.dispatchEvent(new Event('change', { bubbles: true })); } const s = c.sel; cselClose(); s.focus?.(); }
+document.addEventListener('mousedown', e => {
+  const c = window.__csel; if (c && c.pop.contains(e.target)) return;
+  const sel = e.target.closest?.('select');
+  if (sel && !sel.multiple && !(sel.size > 1) && !sel.disabled && !sel.closest('.no-csel') && CSEL_FINE() && e.button === 0) { e.preventDefault(); if (c?.sel === sel) { cselClose(); return; } sel.focus(); cselOpen(sel); return; }
+  if (c) cselClose();
+}, true);
+document.addEventListener('click', e => { const o = e.target.closest?.('.csel-pop .csel-opt'); if (o) { e.preventDefault(); cselPick(+o.dataset.i); } });
+document.addEventListener('keydown', e => {
+  const c = window.__csel; if (!c) return; const opts = [...c.pop.querySelectorAll('.csel-opt:not([disabled])')], cur = opts.findIndex(o => o.classList.contains('act'));
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cselClose(); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = opts[Math.max(0, Math.min(opts.length - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)))]; opts.forEach(o => o.classList.toggle('act', o === n)); n?.scrollIntoView({ block: 'nearest' }); return; }
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (opts[cur]) cselPick(+opts[cur].dataset.i); return; }
+  if (e.key === 'Tab') cselClose();
+}, true);
+window.addEventListener('scroll', e => { const c = window.__csel; if (c && !c.pop.contains(e.target)) cselClose(); }, true);
+window.addEventListener('resize', () => cselClose());
+
+/* ---------- v3.71 — drag tags to reorder them (or move them to another category) ---------- */
+document.addEventListener('dragstart', e => { const row = e.target.closest?.('.tagrow[data-id]'); if (!row) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', row.dataset.id); row.classList.add('dragging'); window.__tagDrag = row.dataset.id; });
+document.addEventListener('dragend', e => { e.target.closest?.('.tagrow')?.classList.remove('dragging'); $$('.tagrow.drop-before,.tagrow.drop-after,.taglist.drop-in').forEach(x => x.classList.remove('drop-before', 'drop-after', 'drop-in')); window.__tagDrag = null; });
+document.addEventListener('dragover', e => { if (!window.__tagDrag) return; const list = e.target.closest?.('.taglist'); if (!list) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  $$('.tagrow.drop-before,.tagrow.drop-after,.taglist.drop-in').forEach(x => x.classList.remove('drop-before', 'drop-after', 'drop-in'));
+  const row = e.target.closest('.tagrow[data-id]'); if (row && row.dataset.id !== window.__tagDrag) { const r = row.getBoundingClientRect(); row.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after'); } else if (!row) list.classList.add('drop-in'); });
+document.addEventListener('drop', async e => {
+  const id = window.__tagDrag, list = e.target.closest?.('.taglist'); if (!id || !list) return; e.preventDefault();
+  const row = e.target.closest('.tagrow[data-id]'), cat = list.dataset.cat, t = get('tags', id); if (!t || !cat) return;
+  const before = row && row.dataset.id !== id ? (e.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2) : null;
+  state.tags = state.tags.filter(x => x.id !== id); t.categoryId = cat;
+  let at = state.tags.length; if (row && row.dataset.id !== id) { const j = state.tags.findIndex(x => x.id === row.dataset.id); at = before ? j : j + 1; } else { const last = state.tags.map((x, k) => x.categoryId === cat ? k : -1).filter(k => k >= 0).pop(); at = last == null ? state.tags.length : last + 1; }
+  state.tags.splice(at, 0, t); window.__tagDrag = null; invalidate(); await changed(L('จัดลำดับแท็กแล้ว', 'Tags reordered'));
+});
+
+/* v3.74 — Table columns: drag a ticked column to reorder it */
+document.addEventListener('dragstart', e => { const row = e.target.closest?.('.colrow[draggable=true]'); if (!row) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', row.dataset.k); row.classList.add('dragging'); window.__colDrag = row.dataset.k; });
+document.addEventListener('dragover', e => { if (!window.__colDrag) return; const row = e.target.closest?.('.colrow.on'); document.querySelectorAll('.colrow.drop-before,.colrow.drop-after').forEach(r => r.classList.remove('drop-before', 'drop-after')); if (!row || row.dataset.k === window.__colDrag) return; e.preventDefault(); const r = row.getBoundingClientRect(); row.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after'); });
+document.addEventListener('drop', e => { const k = window.__colDrag; if (!k) return; const row = e.target.closest?.('.colrow.on'); if (!row || row.dataset.k === k) return; e.preventDefault(); const after = row.classList.contains('drop-after'), c = window.__cols.filter(x => x !== k); let j = c.indexOf(row.dataset.k) + (after ? 1 : 0); c.splice(j, 0, k); window.__cols.splice(0, window.__cols.length, ...c); window.__colDrag = null; window.__drawCols?.(); });
+document.addEventListener('dragend', () => { if (!window.__colDrag) return; window.__colDrag = null; document.querySelectorAll('.colrow.dragging,.colrow.drop-before,.colrow.drop-after').forEach(r => r.classList.remove('dragging', 'drop-before', 'drop-after')); });
+
+/* v3.74 — the tag dropdown closes on a click outside it */
+document.addEventListener('mousedown', e => { document.querySelectorAll('.tagdd-pop:not([hidden])').forEach(pop => { const tp = pop.closest('.tagdd'); if (tp && !tp.contains(e.target)) { pop.hidden = true; tp.querySelector('.tagdd-field')?.classList.remove('open'); } }); });
+
+/* v3.75 — tooltips as a dotted underline: every ⓘ icon hands its text to the label it sits in (or next to) and hides itself */
+const UL_HOSTS = 'label,h2,h3,h4,th,summary,.rp-l,.kpi-l,.ins-kv>label,.fx-pair,.mae-t,span,b,strong,small,p';
+function ulTips(root = document) {
+  root.querySelectorAll?.('.info-tip:not([data-ul])').forEach(el => {
+    el.dataset.ul = '1'; let host = el.parentElement;
+    const textHost = host && host.matches(UL_HOSTS) && !host.matches('.seg,.ins-acct,.tv-seg') && !host.querySelector('input,select,textarea,.seg');
+    if (!textHost) host = el.previousElementSibling && !el.previousElementSibling.matches('input,select,textarea') ? el.previousElementSibling : el.nextElementSibling;
+    if (!host || (host.dataset.tip && host.dataset.tip !== el.dataset.tip)) { el.dataset.ul = 'keep'; return; }
+    el._ulT = host; el.classList.add('ul-hidden');
+    if (el.dataset.tip && !el.hidden) { host.dataset.tip = el.dataset.tip; host.classList.add('ul-tip'); }
+  });
+}
+{ let q = 0; const run = () => { q = 0; ulTips(document); }; new MutationObserver(() => { if (!q) q = requestAnimationFrame(run); }).observe(document.documentElement, { childList: true, subtree: true }); }
+
+/* ---------- v3.75 — themed date / date-time picker (replaces the browser's calendar popup; typing in the field still works) ---------- */
+const DP_SEL = 'input[type=date],input[type=datetime-local]';
+function dpClose() { const d = window.__dp; if (!d) return; d.pop.remove(); window.__dp = null; }
+function dpParse(inp) {
+  const v = inp.value, dt = inp.type === 'datetime-local', m = v.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/), n = new Date();
+  return m ? { y: +m[1], mo: +m[2] - 1, d: +m[3], h: dt ? +(m[4] || 0) : 0, mi: dt ? +(m[5] || 0) : 0, has: true } : { y: n.getFullYear(), mo: n.getMonth(), d: n.getDate(), h: n.getHours(), mi: n.getMinutes(), has: false };
+}
+const p2 = v => String(v).padStart(2, '0');
+function dpRender() {
+  const d = window.__dp; if (!d) return; const { inp, view, sel } = d, dt = inp.type === 'datetime-local';
+  const ws = state?.settings?.weekStart ?? 1, first = new Date(view.y, view.mo, 1), lead = (first.getDay() - ws + 7) % 7, days = new Date(view.y, view.mo + 1, 0).getDate(), t = new Date();
+  const cells = []; for (let i = 0; i < lead; i++) cells.push('<span></span>');
+  for (let k = 1; k <= days; k++) { const on = sel.has && sel.y === view.y && sel.mo === view.mo && sel.d === k, today = t.getFullYear() === view.y && t.getMonth() === view.mo && t.getDate() === k; cells.push(`<button type="button" class="dp-d ${on ? 'on' : ''} ${today ? 'today' : ''}" data-dp-day="${k}">${k}</button>`); }
+  d.pop.innerHTML = `<div class="dp-h"><button type="button" class="dp-nav" data-dp-nav="-1" aria-label="${L('เดือนก่อน', 'Previous month')}">${icon('chev-left')}</button><b>${monthName(view.mo, true)} ${view.y}</b><button type="button" class="dp-nav" data-dp-nav="1" aria-label="${L('เดือนถัดไป', 'Next month')}">${icon('chev-right')}</button></div>
+    <div class="dp-w">${[0, 1, 2, 3, 4, 5, 6].map(i => `<span>${dayName((ws + i) % 7)}</span>`).join('')}</div><div class="dp-g">${cells.join('')}</div>
+    ${dt ? `<div class="dp-t">${icon('schedule')}<input type="number" min="0" max="23" class="dp-hh" value="${p2(sel.h)}" aria-label="${L('ชั่วโมง', 'Hour')}"><span>:</span><input type="number" min="0" max="59" class="dp-mm" value="${p2(sel.mi)}" aria-label="${L('นาที', 'Minute')}"></div>` : ''}
+    <div class="dp-f"><button type="button" class="dp-btn" data-dp-act="clear">${L('ล้าง', 'Clear')}</button><button type="button" class="dp-btn" data-dp-act="now">${dt ? L('ตอนนี้', 'Now') : L('วันนี้', 'Today')}</button>${dt ? `<button type="button" class="dp-btn pri" data-dp-act="ok">${L('ตกลง', 'Done')}</button>` : ''}</div>`;
+}
+function dpSet(clear = false) {
+  const d = window.__dp; if (!d) return; const { inp, sel } = d, dt = inp.type === 'datetime-local';
+  if (clear) inp.value = ''; else { const hh = d.pop.querySelector('.dp-hh'), mm = d.pop.querySelector('.dp-mm'); if (hh) sel.h = clamp(+hh.value || 0, 0, 23); if (mm) sel.mi = clamp(+mm.value || 0, 0, 59); inp.value = `${sel.y}-${p2(sel.mo + 1)}-${p2(sel.d)}` + (dt ? `T${p2(sel.h)}:${p2(sel.mi)}` : ''); }
+  inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function dpOpen(inp) {
+  dpClose(); const sel = dpParse(inp), pop = document.createElement('div'); pop.className = 'dp-pop'; pop.setAttribute('role', 'dialog');
+  document.body.append(pop); window.__dp = { inp, pop, sel, view: { y: sel.y, mo: sel.mo } }; dpRender();
+  const r = inp.getBoundingClientRect(), h = pop.offsetHeight, w = pop.offsetWidth, up = innerHeight - r.bottom < h + 12 && r.top > h + 12;
+  pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop.style.top = (up ? r.top - h - 6 : r.bottom + 6) + 'px';
+}
+document.addEventListener('mousedown', e => {
+  const d = window.__dp; if (d && d.pop.contains(e.target)) { e.preventDefault(); return; }
+  const inp = e.target.closest?.(DP_SEL);
+  if (inp && !inp.readOnly && !inp.disabled && matchMedia('(pointer:fine)').matches) { const r = inp.getBoundingClientRect(); if (e.clientX >= r.right - 38) { e.preventDefault(); inp.focus(); if (d?.inp === inp) dpClose(); else dpOpen(inp); return; } }
+  if (d && e.target !== d.inp) dpClose();
+}, true);
+document.addEventListener('click', e => {
+  const d = window.__dp; if (!d || !d.pop.contains(e.target)) return; const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.dpNav) { const v = d.view, m = v.mo + +b.dataset.dpNav; d.view = { y: v.y + Math.floor(m / 12), mo: (m % 12 + 12) % 12 }; dpRender(); return; }
+  if (b.dataset.dpDay) { Object.assign(d.sel, { y: d.view.y, mo: d.view.mo, d: +b.dataset.dpDay, has: true }); if (d.inp.type === 'date') { dpSet(); dpClose(); } else { dpRender(); } return; }
+  const a = b.dataset.dpAct;
+  if (a === 'clear') { dpSet(true); dpClose(); }
+  else if (a === 'now') { const n = new Date(); Object.assign(d.sel, { y: n.getFullYear(), mo: n.getMonth(), d: n.getDate(), h: n.getHours(), mi: n.getMinutes(), has: true }); d.view = { y: d.sel.y, mo: d.sel.mo }; dpRender(); if (d.inp.type === 'date') { dpSet(); dpClose(); } }
+  else if (a === 'ok') { if (!d.sel.has) Object.assign(d.sel, { has: true }); dpSet(); dpClose(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && window.__dp) { e.stopPropagation(); dpClose(); } }, true);
+addEventListener('resize', dpClose);
+document.addEventListener('scroll', e => { if (window.__dp && !window.__dp.pop.contains(e.target)) dpClose(); }, true);
