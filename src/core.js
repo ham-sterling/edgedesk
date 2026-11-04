@@ -1,9 +1,9 @@
 'use strict';
 /* ============================================================
-   EdgeDesk 3 — Offline Trading Journal
+   Tickmeta (formerly EdgeDesk) — Trading Journal · storage keys keep the edgedesk-* names so existing data loads
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'EdgeDesk', APP_VERSION = '3.75.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'Tickmeta', APP_VERSION = '3.84.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -220,7 +220,7 @@ function setupSync() {
 }
 function setSaveLabel(t, bad = false) { const el = $('#save-state'); if (el) { el.textContent = t; el.classList.toggle('neg', bad); } }
 function savePrefs() {
-  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
 }
 function loadPrefs() {
   try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch { }
@@ -282,6 +282,7 @@ const TIMEFRAMES = ['M1', 'M3', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'
 const normTF = v => { const s = String(v || '').trim().toUpperCase().replace(/^(\d+)M$/, 'M$1').replace(/^(\d+)MIN$/, 'M$1').replace(/^(\d+)H$/, 'H$1').replace(/^1D$|^D$|^DAILY$/, 'D1').replace(/^1W$|^W$|^WEEKLY$/, 'W1').replace(/^1MN$|^MONTHLY$/, 'MN'); return TIMEFRAMES.includes(s) ? s : ''; };
 const ASSET_CLASSES = ['Forex', 'Metals', 'Energies', 'Cryptocurrencies', 'Indices', 'Stocks', 'Futures', 'Other'];
 const ASSET_TH = { Forex: 'ฟอเร็กซ์', Metals: 'โลหะ', Energies: 'พลังงาน', Cryptocurrencies: 'คริปโต', Indices: 'ดัชนี', Stocks: 'หุ้น', Futures: 'ฟิวเจอร์ส', Other: 'อื่น ๆ' };
+const assetLbl = c => L(ASSET_TH[c] || c, c === 'Cryptocurrencies' ? 'Crypto' : c); // v3.81: short English label
 /* [key, Thai label, emoji] — v3.15: emoji set; legacy keys (Focused / Revenge / Tired) still display on old trades */
 const EMOTIONS = [['Calm', 'สงบ', '🙂'], ['Confident', 'มั่นใจ', '😀'], ['Neutral', 'ปกติ', '😐'], ['Hesitant', 'ลังเล', '🙄'], ['Fear', 'กลัว', '😰'], ['FOMO', 'FOMO', '😡'], ['Bored', 'เบื่อ', '🥱'], ['Greed', 'โลภ', '🤑']];
 const EMOTIONS_LEGACY = [['Focused', 'มีสมาธิ', '🎯'], ['Revenge', 'เอาคืน', '😤'], ['Tired', 'เหนื่อย', '😪']];
@@ -384,6 +385,7 @@ function migrate(raw) {
   // v3.20: per-trade rule checklists retired — rules live on the strategy only
   for (const t of d.trades) delete t.checklist; delete d.settings.planChecklist;
   if (!d.meta.v331) migrateV331(d);
+  for (const t of d.noteTemplates || []) if (t.title === 'Strategy spec · คู่มือกลยุทธ์') { t.title = 'Strategy · กลยุทธ์'; t.updatedAt = now(); } // v3.76.2: built-in template renamed (only while it still has the original name)
   if (!d.meta.v345) migrateV345(d);
   if (!d.meta.v346) migrateV346(d);
   if (!d.meta.v349) migrateV349(d);

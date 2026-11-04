@@ -6,7 +6,7 @@
    sidebar prompt the backup simply waits.
    ============================================================ */
 const AB_SUPPORTED = typeof window.showDirectoryPicker === 'function';
-const AB_FILE = /^edgedesk-backup-\d{4}-\d{2}-\d{2}\.json$/;
+const AB_FILE = /^(?:tickmeta|edgedesk)-backup-\d{4}-\d{2}-\d{2}\.json$/; // v3.76: renamed to Tickmeta — older edgedesk-* files still count
 let abDir = null, abNeedsPermission = false, abBusy = false;
 const abCfg = () => (state.settings.autoBackup ??= { enabled: false, keep: 14, folder: '' });
 
@@ -35,10 +35,10 @@ async function runAutoBackup(interactive = false, force = false) {
   if (!(await abPermission(interactive))) { if (!abNeedsPermission) { abNeedsPermission = true; render(); } return false; }
   abBusy = true;
   try {
-    const name = `edgedesk-backup-${todayKey()}.json`, fh = await abDir.getFileHandle(name, { create: true }), w = await fh.createWritable();
+    const name = `tickmeta-backup-${todayKey()}.json`, fh = await abDir.getFileHandle(name, { create: true }), w = await fh.createWritable();
     await w.write(await backupJSON()); await w.close();
     const files = []; for await (const [n, h] of abDir.entries()) if (h.kind === 'file' && AB_FILE.test(n)) files.push(n);
-    files.sort().reverse().slice(Math.max(1, c.keep || 14)).forEach(n => abDir.removeEntry(n).catch(() => { }));
+    files.sort((a, b) => b.slice(-15).localeCompare(a.slice(-15)) || b.localeCompare(a)).slice(Math.max(1, c.keep || 14)).forEach(n => abDir.removeEntry(n).catch(() => { }));
     state.meta.lastAutoBackup = state.meta.lastBackup = now(); abNeedsPermission = false; persist(); render();
     if (interactive) toast(L(`สำรองลงโฟลเดอร์ ${c.folder || ''} แล้ว`, `Backed up to ${c.folder || 'folder'}`));
     return true;
@@ -52,8 +52,8 @@ function autoBackupPanel() {
   if (!AB_SUPPORTED) return panel(icon('clock') + L(' สำรองอัตโนมัติ', ' Automatic backup'), `<div class="notice info">${icon('info')}<span>${L('เบราว์เซอร์นี้ไม่รองรับการเขียนไฟล์ลงโฟลเดอร์ — ใช้ Chrome หรือ Edge บนคอมพิวเตอร์ หรือกด "ส่งออกไฟล์สำรอง" เป็นประจำ', 'This browser cannot write to a folder — use Chrome or Edge on a computer, or export a backup regularly')}</span></div>`);
   const status = c.enabled && c.folder
     ? `<div class="ab-status ${abNeedsPermission ? 'warn' : 'ok'}">${icon(abNeedsPermission ? 'alert' : 'check')}<div><strong>${L('เปิดอยู่ · โฟลเดอร์ ', 'On · folder ')}${esc(c.folder)}</strong><small>${abNeedsPermission ? L('เบราว์เซอร์ต้องการให้ยืนยันสิทธิ์อีกครั้ง — กด "สำรองตอนนี้"', 'The browser needs you to confirm access again — click "Back up now"') : last ? L('ล่าสุด ', 'Last ') + fmtDate(last, { time: true }) : L('ยังไม่เคยสำรอง', 'Not run yet')}</small></div></div>`
-    : `<p class="muted small" style="margin-top:0">${L('เลือกโฟลเดอร์ (เช่น โฟลเดอร์ที่ซิงก์กับ Google Drive / OneDrive / iCloud) แล้ว EdgeDesk จะสำรองให้วันละครั้งเมื่อมีการแก้ไข', 'Pick a folder (ideally one synced to Google Drive / OneDrive / iCloud) and EdgeDesk writes a backup once a day when something changed')}</p>`;
-  return panel(icon('clock') + L(' สำรองอัตโนมัติ', ' Automatic backup'), status + `<div class="row wrap mt12">${btn(icon('folder') + (c.enabled ? L(' เปลี่ยนโฟลเดอร์', ' Change folder') : L(' เลือกโฟลเดอร์และเปิดใช้', ' Choose folder & turn on')), 'ab-pick', {}, c.enabled ? '' : 'primary')}${c.enabled ? btn(icon('save') + L(' สำรองตอนนี้', ' Back up now'), 'ab-now', {}, 'primary') + btn(L('ปิด', 'Turn off'), 'ab-off', {}, 'ghost') : ''}</div>${c.enabled ? `<div class="row gap8 mt12 small"><span class="muted">${L('เก็บไฟล์ล่าสุด', 'Keep the newest')}</span><select class="tsel" data-change="ab-keep">${[7, 14, 30, 60].map(n => opt(n, n + L(' ไฟล์', ' files'), c.keep)).join('')}</select></div>` : ''}<p class="help mt8">${L('ไฟล์ชื่อ edgedesk-backup-ปปปป-ดด-วว.json รวมภาพหน้าจอ · ไฟล์ที่เก่ากว่าจำนวนที่เก็บจะถูกลบเฉพาะในโฟลเดอร์นี้', 'Files are named edgedesk-backup-YYYY-MM-DD.json and include screenshots · only older backup files in this folder are removed')}</p>`, '', 'ab-panel');
+    : `<p class="muted small" style="margin-top:0">${L('เลือกโฟลเดอร์ (เช่น โฟลเดอร์ที่ซิงก์กับ Google Drive / OneDrive / iCloud) แล้ว Tickmeta จะสำรองให้วันละครั้งเมื่อมีการแก้ไข', 'Pick a folder (ideally one synced to Google Drive / OneDrive / iCloud) and Tickmeta writes a backup once a day when something changed')}</p>`;
+  return panel(icon('clock') + L(' สำรองอัตโนมัติ', ' Automatic backup'), status + `<div class="row wrap mt12">${btn(icon('folder') + (c.enabled ? L(' เปลี่ยนโฟลเดอร์', ' Change folder') : L(' เลือกโฟลเดอร์และเปิดใช้', ' Choose folder & turn on')), 'ab-pick', {}, c.enabled ? '' : 'primary')}${c.enabled ? btn(icon('save') + L(' สำรองตอนนี้', ' Back up now'), 'ab-now', {}, 'primary') + btn(L('ปิด', 'Turn off'), 'ab-off', {}, 'ghost') : ''}</div>${c.enabled ? `<div class="row gap8 mt12 small"><span class="muted">${L('เก็บไฟล์ล่าสุด', 'Keep the newest')}</span><select class="tsel" data-change="ab-keep">${[7, 14, 30, 60].map(n => opt(n, n + L(' ไฟล์', ' files'), c.keep)).join('')}</select></div>` : ''}<p class="help mt8">${L('ไฟล์ชื่อ edgedesk-backup-ปปปป-ดด-วว.json รวมภาพหน้าจอ · ไฟล์ที่เก่ากว่าจำนวนที่เก็บจะถูกลบเฉพาะในโฟลเดอร์นี้', 'Files are named tickmeta-backup-YYYY-MM-DD.json and include screenshots · only older backup files in this folder are removed')}</p>`, '', 'ab-panel');
 }
 const AB_ACTIONS = {
   'ab-pick': async () => {

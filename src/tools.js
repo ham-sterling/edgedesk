@@ -12,12 +12,24 @@ function calcAccOptions(type, cur) {
   const v = type === 'cent' ? 'calc:USC' : 'calc:USD';
   return list.map(a => opt(a.id, `${a.name} · ${a.currency}`, cur)).join('') + opt(v, `${L('ไม่ผูกบัญชี', 'No account')} · ${type === 'cent' ? 'USC' : 'USD'}${list.length ? '' : L(' (ยังไม่มีบัญชีประเภทนี้)', ' (no account of this type yet)')}`, cur);
 }
+/* v3.78 — the account picker is a small button at the top right: every account (Standard and Cent) + "no account" for each type */
+function calcAllAccOptions(cur) {
+  const list = state.accounts.filter(a => a.active !== false || a.id === cur).sort((a, b) => isCent(a.currency) - isCent(b.currency) || a.name.localeCompare(b.name));
+  return list.map(a => opt(a.id, `${a.name} · ${a.currency}`, cur)).join('') + opt('calc:USD', `${L('ไม่ผูกบัญชี', 'No account')} · USD`, cur) + opt('calc:USC', `${L('ไม่ผูกบัญชี', 'No account')} · USC`, cur);
+}
+const calcTypeOfId = id => String(id).startsWith('calc:') ? (id === 'calc:USC' ? 'cent' : 'std') : calcTypeOf(id);
+function calcUnitSeg(accId, sel) { const c = get('accounts', accId)?.currency || (accId === 'calc:USC' ? 'USC' : 'USD'), us = isCent(c) ? [c, centParent(c)] : [c], on = us.includes(sel) ? sel : c; return { html: us.length > 1 ? seg(us.map(u => [u, u]), on, 'calc-unit') : `<span class="calc-unit1">${esc(c)}</span>`, on }; }
 function calcUnitOptions(accId, sel) { const c = get('accounts', accId)?.currency || 'USD', us = isCent(c) ? [c, centParent(c)] : [c]; return us.map(u => opt(u, u === c ? `${u} · ${L('สกุลเงินบัญชี', 'account currency')}` : `${u} · ${L('หาร 100', '÷ 100')}`, us.includes(sel) ? sel : c)).join(''); }
 function calcTypeSync(f) {
-  const t = f.calcType?.value, acc = f.accountId; if (!t || !acc) return;
-  if (f.dataset.type && f.dataset.type !== t) { const keep = calcTypeOf(acc.value) === t ? acc.value : ''; acc.innerHTML = calcAccOptions(t, keep); if (!keep) acc.selectedIndex = 0; }
-  f.dataset.type = t;
-  const u = f.showUnit; if (u && f.dataset.acc !== acc.value) { u.innerHTML = calcUnitOptions(acc.value, f.dataset.acc ? '' : u.value); f.dataset.acc = acc.value; }
+  const acc = f.accountId; if (!acc) return;
+  if (f.dataset.acc !== acc.value) { // account changed (or first run): type, unit and capital follow it
+    const t = calcTypeOfId(acc.value), first = !f.dataset.acc; f.calcType.value = t;
+    $$('#calc-type .seg button').forEach(b => b.classList.toggle('on', b.dataset.value === t));
+    const u = calcUnitSeg(acc.value, first ? f.showUnit.value : ''); f.showUnit.value = u.on; const ub = $('#calc-unitbox'); if (ub) ub.innerHTML = u.html;
+    { const cu = $('.calc-capu'); if (cu) cu.textContent = affixSym(get('accounts', acc.value)?.currency || (acc.value === 'calc:USC' ? 'USC' : 'USD')); }
+    const cap = f.balanceOverride, a = get('accounts', acc.value); if (cap) { const bal = a && !a.virtual ? accountBalance(acc.value) : null, bs = finite(bal) ? String(+bal.toFixed(2)) : ''; if (!first || !cap.value || cap.value === bs) { cap.value = bs; cap.dataset.auto = bs; } }
+    f.dataset.acc = acc.value;
+  }
 }
 
 /* FX rate is only asked for when the instrument's value currency differs from the account currency */
@@ -46,20 +58,21 @@ function distUnit(insId) {
 function calcFormHTML(prefill = {}) {
   const accId = calcAccount(prefill), cur = get('accounts', accId)?.currency || L('เงิน', 'Money');
   if (prefill.cost != null && prefill.cost !== '' && prefill.spread == null && prefill.commission == null) { prefill = { ...prefill, spread: prefill.cost, commission: 0 }; } // older callers passed one combined cost
-  const risk = `<div class="field"><label for="f_riskPct">${L('ความเสี่ยง', 'Risk')}</label><div class="risk-in"><input id="f_riskPct" name="riskPct" type="number" step="any" inputmode="decimal" value="${esc(prefill.riskPct ?? (state.settings.preferredRisk || 1))}"><select name="riskMode" aria-label="${L('หน่วยความเสี่ยง', 'Risk unit')}">${opt('pct', '%', prefill.riskMode || 'pct')}${opt('amt', cur, prefill.riskMode || 'pct')}</select></div></div>`;
+  const risk = `<div class="field"><label for="f_riskPct">${L('ความเสี่ยง', 'Risk')}</label><div class="risk-in"><input id="f_riskPct" name="riskPct" type="number" step="any" inputmode="decimal" value="${esc(prefill.riskPct ?? (state.settings.preferredRisk || 1))}"><select name="riskMode" aria-label="${L('หน่วยความเสี่ยง', 'Risk unit')}">${opt('pct', '%', prefill.riskMode || 'pct')}${opt('amt', affixSym(get('accounts', accId)?.currency) || cur, prefill.riskMode || 'pct')}</select></div></div>`;
   const insPick = instrumentPicker('instrumentId', prefill.instrumentId || lastUsed('instrumentId') || 'ins_XAUUSD').replace(/^<div class="field">|<\/div>$/g, '');
+  const t0 = calcTypeOfId(accId), u0 = calcUnitSeg(accId, prefill.showUnit);
+  const top = `<div class="calc-span6 calc-top"><input type="hidden" name="calcType" value="${t0}"><input type="hidden" name="showUnit" value="${esc(u0.on)}"><div class="calc-types"><span id="calc-type">${seg([['std', 'Standard'], ['cent', 'Standard Cent']], t0, 'calc-type')}</span><span class="calc-unitw"><small>${L('หน่วย', 'Unit')}</small><span id="calc-unitbox">${u0.html}</span></span></div><label class="calc-accw" data-tip="${L('บัญชี', 'Account')}">${icon('wallet')}<select id="f_accountId" name="accountId" aria-label="${L('บัญชี', 'Account')}">${calcAllAccOptions(accId)}</select></label></div>`;
   return `<form id="calc-form" onsubmit="return false"><div class="calc-split"><div class="calc-in"><div class="formgrid c6">
       <div class="field calc-span6 calc-ins">${insPick}${ibtn('info', 'calc-ins-edit', L('รายละเอียด / แก้ไขสินทรัพย์', 'Instrument details / edit'), {}, 'sm calc-ins-ed')}</div>
       ${field('entryPrice', L('ราคาเข้า', 'Entry price'), prefill.entryPrice ?? '', 'number', { attrs: 'autofocus', cls: 'calc-span2' })}${field('stopLoss', 'S/L', prefill.stopLoss ?? '', 'number', { cls: 'calc-span2' })}${field('takeProfit', L('T/P (ไม่บังคับ)', 'T/P (optional)'), prefill.takeProfit ?? '', 'number', { cls: 'calc-span2' })}
       <div class="calc-sep"></div>
-      ${field('calcType', L('ประเภทบัญชี', 'Account type'), calcTypeOf(accId), 'select', { options: [['std', 'Standard'], ['cent', 'Standard Cent']], cls: 'calc-span3' })}${field('showUnit', L('หน่วยที่แสดง', 'Display unit'), '', 'select', { html: calcUnitOptions(accId, prefill.showUnit), cls: 'calc-span3' })}
-      ${field('accountId', L('บัญชี', 'Account'), accId, 'select', { html: calcAccOptions(calcTypeOf(accId), accId), cls: 'calc-span6' })}
-      ${field('balanceOverride', L('ทุน', 'Capital'), prefill.balanceOverride ?? '', 'number', { placeholder: L('ยอดบัญชี', 'Account balance'), cls: 'calc-span3' })}<div class="calc-span3 calc-risk">${risk}</div>
+      ${top}
+      ${field('balanceOverride', L('ทุน', 'Capital'), prefill.balanceOverride ?? '', 'number', { placeholder: L('ยอดบัญชี', 'Account balance'), cls: 'calc-span3', suffix: `<b class="calc-capu">${esc(affixSym(get('accounts', accId)?.currency || (accId === 'calc:USC' ? 'USC' : 'USD')))}</b>` })}<div class="calc-span3 calc-risk">${risk}</div>
       ${field('calcSpread', gl(L('สเปรด (หน่วยราคา)', 'Spread (price units)')), prefill.spread ?? '', 'number', { help: '<span id="calc-spread-help"></span>', cls: 'calc-span3' })}${field('calcCommission', gl(L('ค่าคอมมิชชัน / ล็อต (ไปกลับ)', 'Commission / lot (round trip)'), 'commission'), prefill.commission ?? '', 'number', { help: '<span id="calc-comm-help"></span>', cls: 'calc-span3' })}
       <div class="calc-span6 calc-fx">${fxField(prefill.fxRate)}</div></div>
       <div class="calc-foot" id="calc-acct"></div>
-      <div class="calc-actions">${btn(icon('plus') + L(' สร้างเทรดจากค่านี้', ' Create trade from this'), 'calc-to-trade', {}, 'primary')}${btn(icon('refresh') + L(' ล้างค่า', ' Clear'), 'calc-clear', {}, 'ghost')}</div></div>
-      <div class="calc-out" id="calc-out"></div></div></form>`;
+      </div>
+      <div class="calc-out" id="calc-out"></div></div><div class="calc-actions">${btn(icon('refresh') + L(' ล้างค่า', ' Clear'), 'calc-clear', {}, 'ghost')}${btn(icon('plus') + L(' สร้างเทรดจากค่านี้', ' Create trade from this'), 'calc-to-trade', {}, 'primary')}</div></form>`;
 }
 /* v3.47 — the calculator is a page (#calculator), not a dialog. Its inputs are kept in ui.calcPrefill. */
 function sizeCalculator(prefill = {}) {
@@ -82,7 +95,7 @@ function calcInput() {
   const fxRate = needFx ? num(d.fxRate) : 1, auto = autoCost(d.accountId, d.instrumentId, fxRate), rate = tickRate({ accountId: d.accountId, instrumentId: d.instrumentId, fxRate });
   const acur = get('accounts', d.accountId)?.currency, showUnit = isCent(acur) && d.showUnit === centParent(acur) ? d.showUnit : acur;
   const sp = num(d.calcSpread), cm = num(d.calcCommission), spread = Math.max(0, sp != null ? sp : auto.spread), perLot = Math.max(0, cm != null ? cm : auto.perLot), comm = perLot && rate ? perLot / rate : 0;
-  return { accountId: d.accountId, instrumentId: d.instrumentId, entryPrice: entry, stopLoss: sl, takeProfit: tp, riskPct: num(d.riskPct), riskMode: d.riskMode === 'amt' ? 'amt' : 'pct', side, fxRate, needFx, spread, perLot, comm, cost: spread + comm, spreadAuto: sp == null, commAuto: cm == null, auto, balanceOverride: num(d.balanceOverride), showUnit };
+  return { accountId: d.accountId, instrumentId: d.instrumentId, entryPrice: entry, stopLoss: sl, takeProfit: tp, riskPct: num(d.riskPct), riskMode: d.riskMode === 'amt' ? 'amt' : 'pct', side, fxRate, needFx, spread, perLot, comm, cost: spread + comm, spreadAuto: sp == null, commAuto: cm == null, auto, balanceOverride: f.balanceOverride?.dataset.auto != null && d.balanceOverride === f.balanceOverride.dataset.auto ? null : num(d.balanceOverride), showUnit };
 }
 /* price-unit amount with up to decimals+2 places, trailing zeros trimmed */
 const pxFmt = (v, dec = 2) => finite(v) ? String(+(+v).toFixed(Math.min(10, dec + 2))) : '—';
@@ -109,11 +122,9 @@ function calcAcctHTML(p, c) {
   return item(L('ทุนที่ใช้คำนวณ', 'Capital used'), money(finite(c.bal) ? c.bal * dk : c.bal, dk === 1 ? cur : p.showUnit), ov ? L('กำหนดเอง', 'custom') : acc.virtual ? L('ใส่ทุนในช่อง “ทุน”', 'type it in “Capital”') : L('ยอดบัญชีปัจจุบัน', 'current balance'))
     + item(gl(L('ต้นทุนต่อรอบ', 'Round-trip cost')), `${pxFmt(p.cost, dec)} (${du.f(p.cost)})`, `${L('สเปรด', 'spread')} ${pxFmt(p.spread, dec)} + ${L('ค่าคอมมิชชัน', 'commission')} ${pxFmt(p.comm, dec)}`);
 }
-function calcSpecHTML(insId) {
-  const i = get('instruments', insId); if (!i) return '';
-  const vc = i.valueCurrency || i.quoteCurrency || '';
-  const it = (k, v) => `<div class="cs-row"><span>${k}</span><b>${v}</b></div>`; // v3.73: one row per spec, values right-aligned
-  return [it(L('การคำนวณ', 'Calculation'), esc(i.calcMode || defaultCalcMode(i.assetClass, i.symbol))), it(L('สัญญา', 'Contract'), fmt(i.contractSize, i.contractSize < 1 ? 2 : 0)), it('Tick', `${i.tickSize} ${L('มูลค่า', 'worth')} ${+i.tickValue} ${esc(vc)}`), i.pipSize ? it(L('ขนาดปิ๊บ', 'Pip size'), i.pipSize) : '', it(L('ล็อต', 'Lot'), `${i.minQuantity ?? '—'}–${i.maxQuantity ?? '—'}`), it(L('ขั้น', 'Step'), i.quantityStep ?? '—')].filter(Boolean).join('');
+function calcSpecHTML(p, M) { // v3.78 — only the pip value (per 1 lot, in the display unit)
+  const ins = specFor(get('instruments', p.instrumentId), p.accountId), rate = tickRate({ accountId: p.accountId, instrumentId: p.instrumentId, fxRate: p.fxRate }), pv = ins?.pipSize && rate ? ins.pipSize * rate : null;
+  return `<div class="cs-row"><span>${gl(L('มูลค่าต่อปิ๊บ', 'Pip value'), 'pip')}</span><b>${finite(pv) ? M(pv) + L(' / ล็อต', ' / lot') : '—'}</b></div>`;
 }
 function updateCalc() {
   const p = calcInput(); if (!p) return;
@@ -128,7 +139,7 @@ function updateCalc() {
   if (p.takeProfit != null && p.entryPrice != null && !tpOk) warn.push(L('T/P อยู่ผิดฝั่งของราคาเข้า', 'T/P is on the wrong side of the entry price'));
   if (finite(netR) && minRR && netR < minRR) warn.push(L(`R สุทธิ 1:${fmt(netR, 2)} ต่ำกว่าขั้นต่ำ 1:${fmt(minRR, 1)} ในกฎของคุณ`, `Net R 1:${fmt(netR, 2)} is below your minimum 1:${fmt(minRR, 1)}`));
   if (finite(c.qty) && insP?.minQuantity && c.qty < insP.minQuantity - EPS) warn.push(L(`จำนวนต่ำกว่าขั้นต่ำของสินทรัพย์ (${insP.minQuantity})`, `Quantity is below the instrument minimum (${insP.minQuantity})`));
-  { const o = $('#calc-form [name=riskMode]')?.options[1]; if (o && cur) o.textContent = cur; }
+  { const o = $('#calc-form [name=riskMode]')?.options[1]; if (o && cur) o.textContent = affixSym(cur); }
   { const bo = $('#f_balanceOverride'); if (bo) bo.placeholder = get('accounts', p.accountId)?.virtual ? L('ใส่ทุนที่ใช้คำนวณ', 'Type the capital') : L('ยอดบัญชี', 'Account balance'); }
   { const box = $('#calc-acct'), h = calcAcctHTML(p, c); if (box && box.dataset.h !== h) { box.innerHTML = h; box.dataset.h = h; } }
   { /* spread / commission: blank = instrument default, shown as placeholder; help shows the conversion */
@@ -155,7 +166,7 @@ function updateCalc() {
       ${row(gl(L('อัตราส่วนกำไรต่อความเสี่ยง', 'Risk reward ratio'), 'rrNet'), tpOk && finite(c.rr) ? '1 : ' + fmt(c.rr, 2) : '—', '', rrSub)}
     </div>
     ${warn.length ? `<div class="notice warn">${icon('alert')}<span>${warn.map(esc).join('<br>')}</span></div>` : ''}
-    <div class="cr-spec"><div class="cr-spec-t">${calcSpecHTML(p.instrumentId)}</div></div>
+    <div class="cr-spec"><div class="cr-spec-t">${calcSpecHTML(p, M)}</div></div>
   </div>`;
   window.__calc = { p, c };
 }
@@ -262,7 +273,9 @@ const TOOL_ACTIONS = {
   'calc-dist-unit': el => { state.settings.calcDistUnit = el.dataset.value === 'points' ? 'points' : 'pips'; persist(); updateCalc(); },
   'calc-acc-edit': (el, e) => { e?.preventDefault?.(); const id = $('#calc-form [name=accountId]')?.value; if (get('accounts', id)?.virtual) return toast(L('เลือกบัญชีจริงเพื่อใช้เลเวอเรจของบัญชี', 'Pick a real account to use its leverage')); if (id) openAccountEditor(id); },
   'calc-ins-edit': () => { const id = $('#calc-form [name=instrumentId]')?.value; if (id) openInstrumentEditor(id); },
-  'calc-clear': () => { ['entryPrice', 'stopLoss', 'takeProfit', 'calcSpread', 'calcCommission', 'balanceOverride'].forEach(k => { const f = $('#f_' + k); if (f) f.value = ''; }); updateCalc(); $('#f_entryPrice')?.focus(); },
+  'calc-type': el => { const f = $('#calc-form'), acc = f?.accountId; if (!acc) return; const t = el.dataset.value; if (calcTypeOfId(acc.value) === t) return; const a = state.accounts.find(x => x.active !== false && isCent(x.currency) === (t === 'cent')); acc.value = a ? a.id : (t === 'cent' ? 'calc:USC' : 'calc:USD'); updateCalc(); },
+  'calc-unit': el => { const f = $('#calc-form'); if (!f) return; f.showUnit.value = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); updateCalc(); },
+  'calc-clear': () => { ['entryPrice', 'stopLoss', 'takeProfit', 'calcSpread', 'calcCommission', 'balanceOverride'].forEach(k => { const f = $('#f_' + k); if (f) f.value = ''; }); const cf = $('#calc-form'); if (cf) cf.dataset.acc = ''; updateCalc(); $('#f_entryPrice')?.focus(); },
   'calc-to-trade': () => {
     const x = window.__calc; if (!x?.p || !(x.p.entryPrice > 0)) { toast(L('ใส่ราคาเข้าก่อน', 'Enter an entry price first'), 'bad'); return; }
     const { p, c } = x; if ($('#calc-form')?.closest('.modal-back')) closeModal();

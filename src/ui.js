@@ -109,7 +109,7 @@ function field(name, label, val = '', type = 'text', o = {}) {
   if (type === 'select') input = `<select id="${id}" name="${name}" ${req} ${o.attrs || ''}>${o.html || options(o.options || [], val, o.empty)}</select>`;
   else if (type === 'textarea') input = `<textarea id="${id}" name="${name}" rows="${o.rows || 3}" placeholder="${esc(o.placeholder || '')}" ${o.attrs || ''}>${esc(val)}</textarea>`;
   else input = `<input id="${id}" name="${name}" type="${type}" value="${esc(val ?? '')}" ${type === 'number' ? `step="${o.step || 'any'}" inputmode="decimal"` : ''} placeholder="${esc(o.placeholder || '')}" ${req} ${o.attrs || ''}>`;
-  if (o.suffix) input = `<div class="input-suffix">${input}<span>${o.suffix}</span></div>`;
+  if (o.suffix) input = `<div class="input-affix"><span class="affix">${o.suffix === '%' ? '%' : o.suffix}</span>${input}</div>`; // v3.77: unit box on the left ($ / ¢ / %)
   const tip = o.tip ? ` <span class="info-tip" ${o.tipId ? `id="${o.tipId}"` : ''} data-tip="${esc(o.tip)}">${icon('info', 'tiny')}</span>` : '';
   return `<div class="field ${o.span ? 'span' + o.span : ''} ${o.cls || ''}"><label for="${id}">${label}${o.required ? ' <i class="req">*</i>' : ''}${tip}</label>${input}${help}</div>`;
 }

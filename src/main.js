@@ -39,7 +39,7 @@ function openFilters() {
   const sec = (t, body) => `<section class="fsec"><h4>${t}</h4>${body}</section>`;
   const body = `<form id="filter-form" class="fpanel" onsubmit="return false" tabindex="-1" autofocus>
     ${sec(L('สินทรัพย์', 'Instrument'), instrumentPicker('instrumentId', f.instrumentId, { all: L('ทุกสินทรัพย์', 'All instruments'), noLabel: true }))}
-    ${sec(L('ประเภทสินทรัพย์', 'Instrument type'), pick('assetClass', [['', A], ...ASSET_CLASSES.filter(c => state.instruments.some(i => i.assetClass === c && state.trades.some(t => t.instrumentId === i.id))).map(c => [c, L(ASSET_TH[c], c)])], f.assetClass, 'pill'))}
+    ${sec(L('ประเภทสินทรัพย์', 'Instrument type'), pick('assetClass', [['', A], ...ASSET_CLASSES.filter(c => state.instruments.some(i => i.assetClass === c && state.trades.some(t => t.instrumentId === i.id))).map(c => [c, assetLbl(c)])], f.assetClass, 'pill'))}
     ${sec(L('กลยุทธ์', 'Strategy'), `<select name="playbookId" class="fsel">${entityOptions('playbooks', f.playbookId, A)}</select>`)}
     ${sec(L('ทิศทาง', 'Side'), pick('side', [['', A], ['Buy', 'Long'], ['Sell', 'Short']], f.side))}
     ${sec(L('สถานะ', 'Status'), pick('status', [['', A], ['Closed', L('ปิดแล้ว', 'Closed')], ['Open', L('เปิดอยู่', 'Open')]], f.status))}
@@ -101,7 +101,7 @@ function bulkDialog(op) {
 }
 function lightbox(id) { getImage(id).then(rec => { if (!rec) return; const el = document.createElement('div'); el.className = 'lightbox'; el.innerHTML = `<img src="${rec.data}" alt="">`; el.onclick = () => el.remove(); document.body.appendChild(el); }); }
 function riskSizeDialog() {
-  openModal({ title: icon('calculator') + L(' จำนวนจาก % ความเสี่ยง', ' Quantity from risk %'), size: 'sm', body: `${field('rsz', L('ความเสี่ยงต่อเทรด (% ของยอดเงิน)', 'Risk per trade (% of balance)'), state.settings.preferredRisk || 1, 'number', { suffix: '%', attrs: 'autofocus' })}<div id="rsz-out" class="mt16"></div>`, foot: `${btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost')}${btn(L('ใช้ขนาดนี้', 'Use this size'), 'rsz-apply', {}, 'primary')}` });
+  openModal({ title: icon('calculator') + L(' จำนวนจาก % ความเสี่ยง', ' Quantity from risk %'), size: 'sm', center: true, cls: 'dlg', body: `${field('rsz', L('ความเสี่ยงต่อเทรด (% ของยอดเงิน)', 'Risk per trade (% of balance)'), state.settings.preferredRisk || 1, 'number', { suffix: '%', attrs: 'autofocus' })}<div id="rsz-out" class="mt16"></div>`, foot: `${btn(L('ยกเลิก', 'Cancel'), 'close-modal', {}, 'ghost')}${btn(L('ใช้ขนาดนี้', 'Use this size'), 'rsz-apply', {}, 'primary')}` });
   updateRiskSize();
 }
 function updateRiskSize() {
@@ -134,6 +134,13 @@ const A = {
   'save-trade': el => saveTrade(!!el.dataset.again), 'ed-size': riskSizeDialog, 'rsz-apply': () => { if (finite(window.__rsz)) { closeModal(); $('#f_quantity').value = +window.__rsz.toFixed(4); updateLive(); } },
   'ed-tf': el => { const h = $('#editor-form [name=timeframe]'), on = el.classList.contains('on'); el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', !on && b === el)); if (h) { h.value = on ? '' : el.dataset.value; h.dispatchEvent(new Event('input', { bubbles: true })); } },
   'ed-col': el => el.closest('.ed-card')?.classList.toggle('collapsed'),
+  'shot-pick': () => $('#editor-shots .dropzone input[type=file]')?.click(),
+  'shot-link': () => { const h = $('#editor-form [name=chartUrl]'); promptDialog(L('ลิงก์กราฟ', 'Chart link'), L('ลิงก์ (เช่น TradingView snapshot)', 'Link (e.g. a TradingView snapshot)'), h?.value || '', v => { const u = safeUrl(v); if (v && !u) return toast(L('ลิงก์ต้องขึ้นต้นด้วย https://', 'The link must start with https://'), 'bad'); if (h) h.value = u; const box = $('#ed-chartlink'); if (box) box.innerHTML = chartLinkChip(u); }); },
+  'chartlink-del': () => { const h = $('#editor-form [name=chartUrl]'); if (h) h.value = ''; const box = $('#ed-chartlink'); if (box) box.innerHTML = ''; },
+  'ins-ct-save': () => insCtApply(),
+  'ins-ct-discard': () => { window.__insDraft = {}; renderMain(); },
+  'ins-view': el => { ui.insView = el.dataset.value; savePrefs(); renderMain(); },
+  'ins-spec': el => { ui.insSpec = el.dataset.value; savePrefs(); renderMain(); },
   'ed-pick-ins': () => { const i = $('#f_instrumentId_search'); if (i) i.focus(); },
   'ed-side': el => { editor.side = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); updateLive(); },
   'ed-status': el => { editor.status = el.dataset.value; el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el)); if (editor.status === 'Closed' && !$('#f_exitDateTime').value) $('#f_exitDateTime').value = localInput(now()); updateLive(); },
@@ -171,7 +178,7 @@ const A = {
   'bulk-tag-toggle': el => { const s = window.__bulkTags; s.has(el.dataset.id) ? s.delete(el.dataset.id) : s.add(el.dataset.id); el.classList.toggle('on'); },
   'bulk-tags-apply': async el => { const s = window.__bulkTags, add = el.dataset.mode === 'add'; ui.selected.forEach(id => { const t = get('trades', id); if (!t) return; t.tags = add ? [...new Set([...(t.tags || []), ...s])] : (t.tags || []).filter(x => !s.has(x)); t.updatedAt = now(); }); closeModal(); ui.selected.clear(); await changed(L('อัปเดตแท็กแล้ว', 'Tags updated')); },
   'export-csv': () => exportTradesCSV(sortTrades(filtered({ search: ui.search }))), 'export-csv-all': () => exportTradesCSV(state.trades),
-  'csv-template': () => download('edgedesk-template.csv', '﻿symbol,type,open_time,open_price,volume,sl,tp,close_time,close_price,profit,commission,swap,playbook,tags,note\r\nXAUUSD,buy,2026-01-05 09:30,2650.50,0.50,2644.00,2665.00,2026-01-05 11:10,2661.20,535.00,3.50,0,Pure Price Action,Pullback|Trending,ตัวอย่าง\r\n', 'text/csv'),
+  'csv-template': () => download('tickmeta-template.csv', '﻿symbol,type,open_time,open_price,volume,sl,tp,close_time,close_price,profit,commission,swap,playbook,tags,note\r\nXAUUSD,buy,2026-01-05 09:30,2650.50,0.50,2644.00,2665.00,2026-01-05 11:10,2661.20,535.00,3.50,0,Pure Price Action,Pullback|Trending,ตัวอย่าง\r\n', 'text/csv'),
   'import-csv': () => { if (!state.accounts.length) { toast(L('สร้างบัญชีก่อนนำเข้า', 'Create an account first')); openAccountEditor(); return; } pickFile('.csv,text/csv,.txt', startCSV); },
   'csv-validate': validateCSV, 'csv-commit': commitCSV,
   'backup': exportBackup, 'restore': () => pickFile('.json,application/json', f => f.text().then(t => { try { restoreFrom(JSON.parse(t), f.name); } catch (e) { toast(L('ไฟล์ JSON ไม่ถูกต้อง', 'Invalid JSON'), 'bad'); } })),
@@ -273,7 +280,8 @@ function wire() {
   document.addEventListener('input', e => {
     const t = e.target;
     if (iconFieldInput(t)) return;
-    if (t.closest?.('#exec-dlg') && editor) { updateLive(); return; } // v3.75: Scale in / out dialog previews live
+    if (t.closest?.('#exec-dlg') && editor) { updateLive(); return; }
+    if (t.classList?.contains('ct-in')) { insCtDraft(t); return; } // v3.75: Scale in / out dialog previews live
     if (t.dataset.ui && ['search', 'noteSearch', 'insSearch'].includes(t.dataset.ui)) { ui[t.dataset.ui] = t.value; ui.page = 1; debouncedMain(t); return; }
     if (t.matches('[data-combo-input]')) { renderCombo(t); return; }
     if (t.closest('#editor-form')) { if (t.name === 'commission' && editor) editor.commTouched = true; updateLive(); return; }
@@ -287,6 +295,7 @@ function wire() {
   });
   document.addEventListener('change', e => {
     const t = e.target;
+    if (t.classList?.contains('ct-in')) { insCtDraft(t); return; } // v3.80: instruments Compact view (staged until Save)
     if (t.dataset.ui && !['search', 'noteSearch', 'insSearch'].includes(t.dataset.ui)) {
       const k = t.dataset.ui; ui[k] = k === 'pageSize' ? +t.value : t.value;
       if (k === 'preset') { if (t.value === 'custom') { customRange(); return; } const [f, to] = presetRange(t.value); ui.from = f; ui.to = to; }
@@ -309,6 +318,10 @@ function wire() {
     if (t.closest('#editor-form') && t.name === 'playbookId') { const pb = get('playbooks', t.value); $('#ed-tags').innerHTML = tagPicker(editor.tags, pb?.relevantTagIds || []); updateLive(); return; }
     if (t.dataset.change === 'note-strat-add') { noteStrategyAdd(t); return; }
     if (t.closest('#editor-form')) updateLive(); if (t.closest('#calc-form')) updateCalc();
+  });
+  document.addEventListener('keydown', e => { // v3.79: Enter / ↑ ↓ move between cells in the instruments Compact view
+    const c = e.target.closest?.('.ct-in'); if (!c || !['Enter', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault(); const all = [...document.querySelectorAll(`.ct-in[data-k="${c.dataset.k}"]`)], i = all.indexOf(c), nx = all[i + (e.key === 'ArrowUp' ? -1 : 1)]; if (nx) { nx.focus(); nx.select(); } else c.blur();
   });
   document.addEventListener('keydown', e => {
     const t = e.target, typing = t.matches('input,textarea,select,[contenteditable=true]');
@@ -347,6 +360,7 @@ const debouncedMain = debounce(t => { const id = t.dataset.ui, pos = t.selection
 
 /* ---------- init ---------- */
 async function init() {
+  document.title = APP_NAME + ' — Trading Journal'; // v3.76: renamed to Tickmeta (the cloud page title comes from the repo's build, so set it here too)
   if (CLOUD) { const me = await cloudMe(); if (!me.authed && !me.offline) { cloudLoginView(me); return; } }
   try { state = await loadState(); } catch (e) { if (CLOUD && e.status === 401) { cloudLoginView({}); return; } throw e; } await loadDrafts(); reindex(); LANG = state.settings.language || 'th'; loadPrefs();
   if (!ui.preset || ui.preset === 'all') { ui.from = ''; ui.to = ''; }

@@ -254,8 +254,8 @@ function sessionRaw(t) {
   const lon = hl >= 8 && hl < 17, ny = hn >= 8 && hn < 17;
   return lon && ny ? 'London–NY' : lon ? 'London' : ny ? 'New York' : (ht >= 7 && ht < 18) ? 'Asia' : 'After hours';
 }
-const SESSION_TH = { 'Asia': 'เอเชีย', 'London': 'ลอนดอน', 'London–NY': 'ลอนดอน–นิวยอร์ก', 'New York': 'นิวยอร์ก', 'After hours': 'นอกเวลา', 'Unknown': 'ไม่ทราบ' };
-const SESSION_EN = { 'London–NY': 'London–New York' }; // v3.60: spell out New York
+const SESSION_TH = { 'Asia': 'เอเชีย', 'London': 'ลอนดอน', 'London–NY': 'Overlap', 'New York': 'นิวยอร์ก', 'After hours': 'นอกเวลา', 'Unknown': 'ไม่ทราบ' };
+const SESSION_EN = { 'London–NY': 'Overlap' }; // v3.76.2: the London / New York overlap is called "Overlap"
 const sessionLabel = s => L(SESSION_TH[s] || s, SESSION_EN[s] || s);
 const ALL_DIMS = () => [
   ['instrument', L('สินทรัพย์', 'Instrument')], ['assetClass', L('ประเภทสินทรัพย์', 'Asset class')], ['playbook', L('กลยุทธ์', 'Strategy')], ['setup', L('Setup (แท็ก)', 'Setup tag')], ['mistake', L('ความผิดพลาด', 'Mistake')], ['context', L('บริบทตลาด', 'Market context')], ['tag', L('แท็กทั้งหมด', 'All tags')],
@@ -315,7 +315,7 @@ function dimKeyLabel(dim, key) {
     case 'session': return sessionLabel(key);
     case 'month': { const [y, m] = key.split('-'); return monthName(Number(m) - 1) + ' ' + y; }
     case 'week': return L('สัปดาห์ ', 'Wk ') + fmtDate(key, { year: false });
-    case 'assetClass': return L(ASSET_TH[key] || key, key);
+    case 'assetClass': return assetLbl(key);
     case 'emotion': return emotionLabel(key);
     case 'rating': return L(`คะแนน ${key}/5`, `${key}/5`);
     case 'side': return key === 'Long' ? L('Long (ซื้อ)', 'Long') : L('Short (ขาย)', 'Short');

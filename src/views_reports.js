@@ -363,10 +363,10 @@ function groupTiles(all, MIN = 5, dim = '') {
 function oneChartView(rows, dim) { return U('rep-break', () => oneChartViewU(rows, dim)).replace('data-chart-unit="rep-break"', 'data-chart-unit="rep-break"'); }
 function oneChartViewU(rows, dim) {
   const mk = ui.breakdownMetric || 'expectancy', all = group(rows, dim), MIN = 5;
-  const small = all.filter(g => g.s.n < MIN).length, shown = ui.bdHideSmall ? all.filter(g => g.s.n >= MIN) : all;
+  const shown = all; // v3.79: the "Hide groups under 5 trades" switch is gone — every group shows
   const ordered = ORDERED_DIMS.includes(dim) || dim === 'timeframe', gs = ordered ? shown : shown.slice().sort((a, b) => (b.s[mk] ?? -1e9) - (a.s[mk] ?? -1e9));
   const sessBy = dim === 'session' || dim === 'hour' ? `<div class="row gap8 small"><span class="dim">${L('จัดกลุ่มตาม', 'Group by')}</span>${seg([['session', L('เซสชัน', 'Session')], ['hour', L('ชั่วโมงที่เข้า', 'Entry hour')]], dim, 'ins-sess-by')}</div>` : '';
-  const ctrl = `<div class="filterbar ins-bar">${sessBy}<label class="row gap8 small" style="margin-left:auto">${toggle('bdHideSmall', ui.bdHideSmall, 'bd-hide')}<span>${L(`ซ่อนกลุ่มที่มีน้อยกว่า ${MIN} เทรด`, `Hide groups under ${MIN} trades`)}${small ? ` <span class="dim">(${small})</span>` : ''}</span></label></div>`;
+  const ctrl = `<div class="filterbar ins-bar">${sessBy}</div>`;
   return ctrl + groupTiles(all, MIN, dim) + `<div class="ins-charts mb16">${chartOne(rows, gs, dim)}${metricBarCard(shown, dim, ordered)}</div>` + panel(L('ตารางสรุป · ', 'Summary · ') + dimLabel(dim), breakdownTable(gs, dim), '', 'flush');
 }
 /* ---------- v3.64 — Insight chart pair: Chart 1 (left) | Chart 2 (right), sized to fit a 1080p screen ----------
@@ -443,9 +443,9 @@ function crossSection(rows, rowDim = '', tabKey = '') {
   if (tabKey && ui.crossXFor !== tabKey) { ui.crossX = keys.includes(rowDim) ? rowDim : ui.crossX; ui.crossXFor = tabKey; }
   if (!keys.includes(ui.crossX)) ui.crossX = keys.includes('playbook') ? 'playbook' : keys[0];
   if (!keys.includes(ui.crossY) || ui.crossY === ui.crossX) ui.crossY = keys.find(k => k !== ui.crossX && k === 'weekday') || keys.find(k => k !== ui.crossX);
-  const ctrl = `<div class="filterbar"><label class="small muted">${L('แถว', 'Rows')}</label><select class="tsel" data-ui="crossX" style="max-width:200px">${dims.map(([k, l]) => opt(k, l, ui.crossX)).join('')}</select><label class="small muted">× ${L('คอลัมน์', 'Columns')}</label><select class="tsel" data-ui="crossY" style="max-width:200px">${dims.filter(d => d[0] !== ui.crossX).map(([k, l]) => opt(k, l, ui.crossY)).join('')}</select><label class="small muted">${L('ตัวชี้วัด', 'Metric')}</label>${seg(METRICS(), mk, 'cross-metric')}<label class="row gap8 small" style="margin-left:auto">${toggle('crossHide', ui.crossHideSmall, 'cross-hide')}<span>${L(`ซ่อนกลุ่มที่มีน้อยกว่า ${MIN} เทรด`, `Hide groups under ${MIN} trades`)}</span></label></div>`;
+  const ctrl = `<div class="filterbar"><label class="small muted">${L('แถว', 'Rows')}</label><select class="tsel" data-ui="crossX" style="max-width:200px">${dims.map(([k, l]) => opt(k, l, ui.crossX)).join('')}</select><label class="small muted">× ${L('คอลัมน์', 'Columns')}</label><select class="tsel" data-ui="crossY" style="max-width:200px">${dims.filter(d => d[0] !== ui.crossX).map(([k, l]) => opt(k, l, ui.crossY)).join('')}</select><label class="small muted">${L('ตัวชี้วัด', 'Metric')}</label>${seg(METRICS(), mk, 'cross-metric')}</div>`;
   return `<div class="sec mt24 mb8" id="cross"><span class="ul-tip" data-tip="${esc(L('ดูผลแบบไขว้ 2 มิติ จากเทรดทั้งหมดตามตัวกรองด้านบนของแอป (ไม่ใช่กลุ่ม A/B)', 'Two dimensions at once, using all trades in the app-wide filter (not groups A/B)'))}">${L('วิเคราะห์ไขว้', 'Cross Analysis')}</span></div>` + ctrl
-    + chartPanel(`${dimLabel(ui.crossX)} × ${dimLabel(ui.crossY)}`, crossMatrix(rows, ui.crossX, ui.crossY, mk, ui.crossHideSmall ? MIN : 0), '', 'flush', L('ตัวเลขเล็ก = จำนวนเทรดในช่อง · ช่องที่มีน้อยกว่า 5 เทรดแสดงจาง ๆ', 'Small number = trades in the cell · cells under 5 trades are faded'));
+    + chartPanel(`${dimLabel(ui.crossX)} × ${dimLabel(ui.crossY)}`, crossMatrix(rows, ui.crossX, ui.crossY, mk, 0), '', 'flush', L('ตัวเลขเล็ก = จำนวนเทรดในช่อง · ช่องที่มีน้อยกว่า 5 เทรดแสดงจาง ๆ', 'Small number = trades in the cell · cells under 5 trades are faded'));
 }
 function compareFilterForm(key) {
   const f = ui[key] || {};

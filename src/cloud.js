@@ -42,7 +42,7 @@ function cloudLoginView(me = {}) {
   LANG = (navigator.language || '').startsWith('th') ? 'th' : 'en';
   const msg = me.configured === false ? L('ยังไม่ได้ตั้งรหัสผ่าน — เพิ่ม Secret ชื่อ APP_PASSWORD ใน Cloudflare (Worker → Settings → Variables and Secrets) แล้ว Deploy ใหม่', 'No password set yet — add a secret named APP_PASSWORD in Cloudflare (Worker → Settings → Variables and Secrets) and redeploy')
     : me.offline ? L('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต', 'Cannot reach the server — check your connection') : '';
-  $('#app').innerHTML = `<div class="login-wrap"><form class="login-card" id="login-form" onsubmit="return false"><div class="login-logo">${icon('activity')}</div><h1>EdgeDesk</h1><p class="muted small">${L('สมุดบันทึกการเทรด · ข้อมูลเก็บบน Cloudflare ของคุณ', 'Trading journal · data stored in your own Cloudflare')}</p>
+  $('#app').innerHTML = `<div class="login-wrap"><form class="login-card" id="login-form" onsubmit="return false"><div class="login-logo">${icon('activity')}</div><h1>${APP_NAME}</h1><p class="muted small">${L('สมุดบันทึกการเทรด · ข้อมูลเก็บบน Cloudflare ของคุณ', 'Trading journal · data stored in your own Cloudflare')}</p>
     ${msg ? `<div class="notice ${me.configured === false ? 'warn' : 'bad'} mt12">${icon('alert')}<span>${esc(msg)}</span></div>` : ''}
     <div class="field mt16"><label for="f_pw">${L('รหัสผ่าน', 'Password')}</label><input id="f_pw" name="password" type="password" autocomplete="current-password" autofocus ${me.configured === false ? 'disabled' : ''}></div>
     <button class="btn primary mt16" style="width:100%;justify-content:center" type="submit" id="login-btn" ${me.configured === false ? 'disabled' : ''}>${L('เข้าสู่ระบบ', 'Sign in')}</button><p class="small neg mt8" id="login-err"></p></form></div>`;
@@ -154,7 +154,7 @@ async function cloudImgPullAll(local) {
 function cloudStart() {
   if (!CLOUD) return;
   if (cloud.offline) cloudLabel(false, L('ออฟไลน์ — ใช้ข้อมูลในเครื่อง จะซิงก์เมื่อออนไลน์', 'Offline — using the local copy; will sync when online'));
-  if (cloud.firstUpload || lsGet(CLOUD_DIRTY) || cloud.offline) setTimeout(cloudPush, 500);
+  setTimeout(cloudPush, 500); // first upload, offline edits, and anything a version migration changed (no-op when nothing differs)
   setTimeout(cloudImgFlushQueue, 2000);
   cloud.timer = setInterval(() => { if (cloud.pendingPull && !dirty && !modalStack.length && !drawerState) cloudCheck(true); else cloudCheck(); if (imgQueue().length) cloudImgFlushQueue(); if (lsGet(CLOUD_DIRTY) && !cloud.pushing) cloudPush(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) cloudCheck(); });

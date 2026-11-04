@@ -1591,7 +1591,7 @@ a.ed-pb-ic{position:relative;z-index:2;text-decoration:none}a.ed-pb-ic:hover{bac
 /* v3.73 — instrument editor: Standard | Standard Cent on the right, notes in ⓘ tips, clean leader lines, numbers right-aligned */
 .ins-acct{justify-content:flex-end;gap:8px}
 .ins-kvs{padding:8px 18px}
-.ins-kv{display:flex;align-items:center;padding:0;min-height:44px}.ins-kv+.ins-kv{border-top:1px solid color-mix(in srgb,var(--text) 7%,transparent)}
+.ins-kv{display:flex;align-items:center;padding:0;min-height:44px}
 .ins-kv>label{flex-direction:row;align-items:center;gap:6px;white-space:nowrap}
 .ins-kv .ins-kv-n{display:inline-grid;place-items:center;color:var(--dim)}.ins-kv .ins-kv-n[hidden]{display:none}
 .ins-lead{transform:none;margin:0 14px;border-bottom:1px dotted color-mix(in srgb,var(--text) 28%,transparent);align-self:center;height:0}
@@ -1742,3 +1742,177 @@ input[type=date],input[type=datetime-local]{background-image:url("data:image/svg
 .dp-t input{width:64px!important;flex:0 0 64px}
 /* v3.75 — Strategy page (6 KPI cards): mini charts as large as the other pages' KPI cards */
 @container (max-width:230px){.hero.h6 .viz{width:38%!important;flex-basis:38%}.hero.h6 .viz .spark,.hero.h6 .viz .mbars{height:40px}}
+/* v3.76.2 — Notebook: wider left panel (folders, strategies, templates) */
+@media (min-width:901px){#main .notes-layout{grid-template-columns:290px 300px minmax(0,1fr)}}
+@media (min-width:901px) and (max-width:1280px){#main .notes-layout{grid-template-columns:250px 260px minmax(0,1fr)}}
+
+/* ===== v3.77 ===== */
+/* money / percent fields: unit box on the left, divider, then the number (sample: [ $ | 500 ]) */
+.input-affix{display:flex;align-items:stretch;border:1px solid var(--border2);border-radius:10px;background:var(--surface2);overflow:hidden;transition:border-color .12s,box-shadow .12s}
+.input-affix:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.input-affix .affix{flex:0 0 52px;display:grid;place-items:center;border-right:1px solid var(--border2);font-size:16px;font-weight:500;color:var(--muted);user-select:none}
+.input-affix .affix b{font-weight:500}
+.input-affix input{flex:1 1 auto;min-width:0;border:0!important;background:transparent!important;box-shadow:none!important;border-radius:0!important;outline:none}
+/* trade editor head: symbol ▾ … account at the right, description under the symbol */
+.ed-head{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-areas:"ins acc" "desc desc";align-items:center;row-gap:0}
+.ed-head .ed-insw{grid-area:ins;display:flex;align-items:center;min-width:0}
+.ed-head .ed-insw .ed-ins{flex:0 1 auto;min-width:0}
+.ed-head .combo .combo-input{field-sizing:content;min-width:90px;max-width:240px;padding-right:2px!important}
+.ed-chev{all:unset;cursor:pointer;display:grid;place-items:center;width:26px;height:26px;border-radius:999px;color:var(--muted);flex:0 0 auto}.ed-chev:hover{background:var(--hover);color:var(--strong)}.ed-chev .icon{width:20px;height:20px}
+.ed-head .ed-acc{grid-area:acc!important;grid-row:auto!important;grid-column:auto!important;margin:0!important;padding:0!important;justify-self:end}
+.ed-head .ed-ins-desc{grid-area:desc;margin:-8px 0 0 52px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-head .combo-list{min-width:300px}
+/* emotions: one row, buttons shrink to fit */
+.emo.emo-ic,.emo.one-row.emo-ic{flex-wrap:nowrap!important;gap:4px}
+.emo.emo-ic button,.tds .emo.emo-ic button{flex:1 1 0!important;min-width:0;max-width:44px;width:auto!important;height:auto!important;aspect-ratio:1}
+.emo.emo-ic button .emoji{font-size:clamp(15px,4.4vw,21px)}
+/* screenshots: device / link options + link chip */
+.lab-row .shot-src{display:inline-flex;gap:4px;margin-left:auto}
+.chartlink{display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:6px 6px 6px 10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface2)}
+.chartlink a{flex:1;min-width:0;display:flex;align-items:center;gap:8px;color:var(--acc-txt);text-decoration:none;font-size:13px;font-weight:600}
+.chartlink a small{color:var(--dim);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chartlink .icon{width:16px;height:16px;flex:0 0 auto}
+.ed-dur{margin-top:12px}
+/* header icon buttons (Import / CSV / Columns) */
+.btn.hd-ib{width:38px;padding:0;justify-content:center}
+.input-affix .affix,.input-affix .affix b{font-size:18px!important;color:var(--muted)}.input-affix .affix{flex-basis:56px}
+.btn.hd-ib{height:38px;border:1px solid var(--border2)!important;background:var(--surface2)}.btn.hd-ib .icon{width:18px;height:18px}
+
+/* ===== v3.78 — Calculator ===== */
+.calc-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin:-4px 0 18px}
+.calc-types{grid-column:2;display:flex;align-items:center;gap:14px}
+.calc-types .seg{background:var(--dr-sec,var(--surface2));border:0}
+.calc-types #calc-type .seg button{height:30px;min-width:110px;justify-content:center;font-size:12.5px;color:var(--muted)}
+.calc-types #calc-type .seg button.on{background:var(--accentFill)!important;color:#fff!important}
+.calc-unitw{display:inline-flex;align-items:center;gap:8px}.calc-unitw small{font-size:11.5px;color:var(--dim);font-weight:600}
+.calc-unitw .seg button{height:26px;padding:0 12px!important;font-size:12px}
+.calc-unit1{font-size:12px;font-weight:650;color:var(--muted);padding:4px 12px;border-radius:999px;background:var(--surface2);border:1px solid var(--border2)}
+.calc-accw{grid-column:3;justify-self:end;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 4px 0 12px;border:1px solid var(--border2);border-radius:999px;background:var(--surface2);cursor:pointer;color:var(--muted)}
+.calc-accw .icon{width:16px;height:16px;flex:0 0 auto}
+.calc-accw select{all:unset;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text);padding-right:22px;max-width:220px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+.calc-page .calc-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--border)}
+@media (max-width:760px){.calc-top{grid-template-columns:1fr;justify-items:center}.calc-types,.calc-accw{grid-column:1}.calc-accw{justify-self:center}.calc-types{flex-wrap:wrap;justify-content:center}}
+.calc-types #calc-type .seg{background:var(--surface2);border:1px solid var(--border2);padding:3px!important}
+.calc-types #calc-type .seg button{height:30px!important;line-height:30px;padding:0 16px!important;display:inline-flex;align-items:center}
+.calc-unitw .seg{padding:2px!important}.calc-unitw .seg button{height:24px!important;line-height:24px;display:inline-flex;align-items:center}
+
+/* ===== v3.79 ===== */
+/* instruments: List | Compact switch, compact spreadsheet */
+.seg.ins-vsw button{display:grid;place-items:center;width:34px;height:28px;padding:0!important}.seg.ins-vsw .icon{width:18px;height:18px}
+.ins-ssw .seg button{padding:5px 14px}
+.ct-table td,.ct-table th{padding-top:6px!important;padding-bottom:6px!important}
+.ct-table td.ct-c{padding:4px 6px!important;width:120px}
+.ct-in{width:100%;min-width:72px;height:32px!important;padding:0 10px!important;text-align:right;font-variant-numeric:tabular-nums;border:1px solid transparent!important;background:transparent!important;border-radius:8px;box-shadow:none!important;-moz-appearance:textfield}
+.ct-in::-webkit-inner-spin-button,.ct-in::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.ct-table tr:hover .ct-in{border-color:var(--border2)!important;background:var(--surface2)!important}
+.ct-in:focus{border-color:var(--accent)!important;background:var(--surface2)!important;outline:none}
+.ct-in::placeholder{color:var(--dim)}
+.ct-in.ct-ok{border-color:color-mix(in srgb,var(--pos) 70%,transparent)!important;transition:border-color .2s}
+.ins-ct.ct-cent .ct-in{color:var(--warn)}
+/* account editor: Standard | Standard Cent as a centred capsule switch (like the instrument editor); convert = icon button */
+.acc-typef>label{display:block;text-align:center}
+.acc-tgl{display:flex;justify-content:center;align-items:center;gap:8px;margin:2px 0 4px}
+.acc-tgl .seg.acc-units{background:var(--dr-sec,var(--surface2));border:0;gap:2px;padding:3px!important}
+.acc-tgl .acc-units label span,.acc-tgl .acc-units button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;min-width:130px;padding:0 16px!important;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.acc-tgl .acc-units small{font-size:10.5px;font-weight:600;opacity:.75}
+.acc-tgl .acc-units input:checked+span,.acc-tgl .acc-units button.on{background:var(--accentFill)!important;color:#fff!important}
+.acc-tgl .acc-units.locked button:disabled{opacity:1;cursor:default}.acc-tgl .acc-units.locked button:not(.on){opacity:.45}
+.acc-tgl .btn.acc-conv{width:34px;height:34px;border:1px solid var(--border2)!important;border-radius:999px}
+.acc-legacy{font-size:12px;color:var(--warn);font-weight:600}
+.acc-typef .help{text-align:center}
+/* calendars: every day cell is a square */
+.cal .day,.cal.mini .day,.jm-cal .cal.mini .day{aspect-ratio:1/1;min-height:0!important;overflow:hidden}
+.cal .wk{min-height:0}
+/* calculator: account type + unit + account sit just above Capital */
+.calc-in .calc-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 2px;grid-template-columns:none}
+.calc-in .calc-top .calc-types{grid-column:auto}.calc-in .calc-top .calc-accw{grid-column:auto;justify-self:auto}
+@media (max-width:760px){.calc-in .calc-top{flex-direction:column;align-items:stretch}.calc-in .calc-top .calc-types{justify-content:center}.calc-in .calc-top .calc-accw{align-self:center}}
+
+/* v3.80 — Compact instruments: full-width spreadsheet, staged edits + Save bar; editor derived rows without separators */
+.set-page.set-full{max-width:none}
+.ins-ct .tablewrap{overflow-x:auto}
+.ct-table th{white-space:nowrap}
+.ct-table td.ct-c{width:auto;min-width:0}
+.ct-table td.ct-wide .ct-in{min-width:180px}
+.ct-table td.ct-ed,.ct-table th.ct-ed{width:40px;padding-left:10px!important;padding-right:0!important}
+.ct-in.ct-txt{text-align:left;min-width:96px}
+.ct-in.ct-sel{text-align:left;padding-right:26px!important;cursor:pointer;min-width:110px}
+.ct-table tr:hover .ct-in.ct-sel,.ct-in.ct-sel{background-image:none}
+.ct-in.ct-dirty{background:color-mix(in srgb,var(--warn) 14%,transparent)!important;border-color:color-mix(in srgb,var(--warn) 55%,transparent)!important}
+.ins-ct.ct-cent .ct-in.ct-dirty{color:var(--warn)}
+.ct-bar{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface);font-size:13px;color:var(--muted)}
+.ct-bar.on{color:var(--text);background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
+.ct-bar.on #ct-count{font-weight:600}
+.ct-bar:not(.on) .btn{opacity:.5;pointer-events:none}
+.ins-kv+.ins-kv{border-top:0!important}
+.ct-symw{display:flex;align-items:center;gap:6px}.ct-symw .sym{flex:none}.ct-symw .ct-in{min-width:96px}
+.ct-table td.ct-symc{padding:4px 6px!important}
+.ct-table .ct-ed,.ct-table .ct-symc{position:sticky;z-index:2;background:var(--ct-bg,var(--bg))}
+.ct-table .ct-ed{left:0}.ct-table .ct-symc{left:40px;box-shadow:inset -1px 0 0 var(--border)}
+.ct-table .ct-sel[data-k=baseCurrency],.ct-table .ct-sel[data-k=quoteCurrency]{min-width:84px}
+.ct-table .ct-sel[data-k=calcMode]{min-width:168px}.ct-table .ct-sel[data-k=assetClass]{min-width:132px}
+.ct-table .ct-in[data-k=decimals]{min-width:56px}
+.ct-table input.ct-in[type=number]{min-width:70px}
+.wbody .ct-table .ct-ed,.wbody .ct-table .ct-symc{background:var(--bg)!important}
+.wbody .ct-table tbody tr:hover .ct-ed,.wbody .ct-table tbody tr:hover .ct-symc{background:linear-gradient(var(--hover),var(--hover)),var(--bg)!important}
+.ct-table .ct-sel[data-k=baseCurrency],.ct-table .ct-sel[data-k=quoteCurrency]{min-width:96px}
+.ct-table .ct-sel[data-k=calcMode]{min-width:196px}.ct-table .ct-sel[data-k=assetClass]{min-width:156px}
+.ins-ct .tablewrap{max-height:calc(100vh - 290px);overflow:auto}
+.wbody .ins-ct .ct-table thead th{position:sticky;top:0;z-index:3;background:var(--bg)!important;box-shadow:inset 0 -1px 0 var(--border)}
+.wbody .ins-ct .ct-table thead th.ct-ed,.wbody .ins-ct .ct-table thead th.ct-symc{z-index:4}
+.ct-bar{position:static}
+.ct-table .ct-sel[data-k=assetClass]{min-width:172px}
+
+/* v3.81 — logo in Orbitron (SIL OFL 1.1, Google Fonts), all caps */
+@font-face{font-family:"Orbitron";font-style:normal;font-weight:700;font-display:swap;src:url(data:font/woff2;base64,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)}
+.brand>span{font-family:"Orbitron",var(--font,sans-serif);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.p5 .topbar .brand{font-size:17px}
+/* v3.81 — instruments: list + compact full width, row lines edge to edge like Trades */
+@media (min-width:641px){
+  #main .set-instruments .panel.flush.ins-ct,#main .set-instruments .panel.flush.ins-list{margin-left:-32px;margin-right:-32px;border-radius:0;border-left:0;border-right:0;background:none}
+  .set-instruments .ins-table th:first-child,.set-instruments .ins-table td:first-child{padding-left:32px!important}
+  .set-instruments .ins-table th:last-child,.set-instruments .ins-table td:last-child{padding-right:24px!important}
+  .set-instruments .ins-table thead th{border-top:1px solid var(--border)}
+  .set-instruments .panel.flush .foot,.set-instruments .ct-bar{padding-left:32px;padding-right:32px}
+}
+.ct-table .ct-symc{left:0!important}
+.ct-symw .icon-hit{flex:none;padding:0;border:0;background:none;cursor:pointer;border-radius:50%;display:inline-flex}
+.ct-symw .icon-hit:hover{box-shadow:0 0 0 2px var(--accent)}
+.ct-symt{display:flex;flex-direction:column;min-width:0;gap:1px;flex:1}
+.ct-symlink{all:unset;cursor:pointer;font-weight:650;font-size:13.5px;line-height:1.2;align-self:flex-start}
+.ct-symlink:hover{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.ct-symt small{color:var(--dim);font-size:12px}
+.ct-in.ct-desc{height:24px!important;font-size:12px;color:var(--muted);padding:0 6px!important;margin-left:-6px;min-width:190px}
+.ins-ct.ct-cent .ct-in.ct-desc{color:var(--muted)}
+.ct-table td.ct-symc{min-width:240px}
+.ins-table .ct-more{position:sticky;right:0;z-index:2;width:44px;text-align:center;padding-left:6px!important;padding-right:14px!important;background:var(--bg)!important;box-shadow:inset 1px 0 0 var(--border)}
+.wbody .ins-table tbody tr:hover .ct-more{background:linear-gradient(var(--hover),var(--hover)),var(--bg)!important}
+.wbody .ins-ct .ct-table thead th.ct-more{z-index:4}
+.ins-list .ins-table .ct-symc{position:static;box-shadow:none}
+.ct-symw .icon-hit{width:34px;justify-content:flex-start}
+.ins-list .ins-table .ct-more{position:static;box-shadow:none;background:transparent!important}
+.wbody .ins-list .ins-table tbody tr:hover .ct-more{background:var(--hover)!important}
+/* v3.82 — compact column widths: Class fits its longest label, Symbol·description wide enough for the full description, Calculation a bit narrower */
+.ct-table .ct-sel[data-k=assetClass]{min-width:124px}
+.ct-table .ct-sel[data-k=calcMode]{min-width:190px}
+.ct-table td.ct-symc{min-width:300px}
+.ct-in.ct-desc{font-size:11.5px;min-width:262px;text-overflow:ellipsis}
+.ct-in.ct-sel{padding-right:4px!important}
+.ct-table .ct-sel[data-k=assetClass]{min-width:104px}
+.ct-table .ct-sel[data-k=calcMode]{min-width:170px}
+.ct-table .ct-sel[data-k=baseCurrency],.ct-table .ct-sel[data-k=quoteCurrency]{min-width:80px}
+.ct-table .ct-in.ct-desc{font-size:11.5px!important}
+.ct-table td.ct-symc{min-width:268px}.ct-table .ct-in.ct-desc{min-width:226px}
+
+/* v3.83 — date / date-time fields look and act like a date picker: calendar icon on the right, a click anywhere opens the themed calendar */
+input[type=date]:not([readonly]):not(:disabled),input[type=datetime-local]:not([readonly]):not(:disabled){background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b8f98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 12px center!important;background-size:16px 16px!important;padding-right:38px!important;cursor:pointer}
+input[type=date]::-webkit-datetime-edit,input[type=datetime-local]::-webkit-datetime-edit{cursor:pointer}
+
+/* v3.84 — Strategies table view: row lines run to the edges of the page, like Trades */
+@media (min-width:641px){
+  #main .panel.flush.pb-tbl{margin-left:-32px;margin-right:-32px;border-radius:0;border-left:0;border-right:0;background:none}
+  .pb-tbl table th:first-child,.pb-tbl table td:first-child{padding-left:32px!important}
+  .pb-tbl table th:last-child,.pb-tbl table td:last-child{padding-right:32px!important}
+  .pb-tbl table thead th{border-top:1px solid var(--border)}
+  .pb-tbl .foot{padding-left:32px;padding-right:32px}
+}

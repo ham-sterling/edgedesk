@@ -315,9 +315,11 @@ function formCurrency(form) {
   if (form.id === 'acc-form') { const r = form.querySelector('input[name=accUnits]:checked'); return r ? (r.value === 'cent' ? 'USC' : 'USD') : (form.dataset.cur || editor?.record?.currency || 'USD'); }
   const acc = get('accounts', form.querySelector('[name=accountId]')?.value); return acc?.currency || '';
 }
+/* v3.77 — the symbol shown in a money field's unit box: $ € £ ¥ ฿ … and ¢ for cent accounts */
+function affixSym(c) { c = String(c || '').toUpperCase(); if (!c) return '$'; if (isCent(c)) return '¢'; const s = String(currencySymbol(c) || '').trim(); return s || c; }
 function moneyUnits(form) {
   if (!form) return; const cur = formCurrency(form);
-  form.querySelectorAll('.cur-unit').forEach(u => { u.textContent = cur; });
+  form.querySelectorAll('.cur-unit').forEach(u => { u.textContent = affixSym(cur); u.parentElement.dataset.tip = cur; });
   form.querySelectorAll('[data-cur-hint]').forEach(h => { const v = num(form.querySelector(`[name=${h.dataset.curHint}]`)?.value); h.textContent = centHint(v, cur); });
   form.querySelectorAll('.acc-cent-flag').forEach(f => { f.innerHTML = centBadge(cur); });
   form.querySelectorAll('.acc-type-cur').forEach(x => { x.textContent = cur; });
@@ -343,9 +345,9 @@ function accTypeField(a, existing) {
   const cur = a.currency || 'USD', cent = isCent(cur), legacy = !ACC_CURS.includes(cur);
   const tip = esc(L('บัญชี Standard ใช้ USD · บัญชี Standard Cent ใช้ USC (100 USC = 1 USD) กรอกทุน ฝาก/ถอน และค่าคอมมิชชันตามที่เห็นใน MT5 · สเปกสินทรัพย์ไม่ต้องแก้', 'Standard accounts use USD · Standard Cent accounts use USC (100 USC = 1 USD) — type capital, deposits and commission as MT5 shows them · instrument specs stay as they are'));
   const lab = `<label>${L('ประเภทบัญชี', 'Account type')} <span class="info-tip" data-tip="${tip}">${icon('info', 'tiny')}</span></label>`;
-  if (!existing) return `<div class="field span2">${lab}<div class="seg acc-units" role="radiogroup"><label><input type="radio" name="accUnits" value="std" ${cent ? '' : 'checked'}><span>${'Standard'} · USD</span></label><label><input type="radio" name="accUnits" value="cent" ${cent ? 'checked' : ''}><span>${'Standard Cent'} · USC</span></label></div>
+  if (!existing) return `<div class="field span2 acc-typef">${lab}<div class="acc-tgl"><div class="seg acc-units" role="radiogroup"><label><input type="radio" name="accUnits" value="std" ${cent ? '' : 'checked'}><span>Standard <small>USD</small></span></label><label><input type="radio" name="accUnits" value="cent" ${cent ? 'checked' : ''}><span>Standard Cent <small>USC</small></span></label></div></div>
     <p class="help">${L('สกุลเงินของบัญชี', 'Account currency')}: <b class="acc-type-cur">${cent ? 'USC' : 'USD'}</b> · ${L('เลือกแล้วเปลี่ยนภายหลังไม่ได้ ยกเว้นใช้เครื่องมือ “แปลงประเภทบัญชี” ซึ่งแปลงข้อมูลไปพร้อมกัน', 'Fixed once created — switching later uses “Convert account”, which converts the data with it')}</p></div>`;
-  return `<div class="field span2">${lab}<div class="acc-type-lock"><span class="acc-type-v">${icon('lock', 'tiny')}<b>${cent ? 'Standard Cent' : legacy ? L('เดิม', 'Legacy') : 'Standard'}</b><span class="dim">·</span><span>${esc(cur)}</span>${centBadge(cur)}</span>${btn(icon('refresh') + L(' แปลงประเภทบัญชี…', ' Convert account…'), 'acc-convert', { 'data-id': a.id }, 'sm')}</div>
+  return `<div class="field span2 acc-typef">${lab}<div class="acc-tgl acc-type-lock"><div class="seg acc-units locked" role="group" data-tip="${esc(L('เปลี่ยนด้วยปุ่มแปลงประเภทบัญชีด้านข้าง', 'Change it with the convert button next to it'))}"><button type="button" class="${!cent && !legacy ? 'on acc-type-v' : ''}" disabled>Standard <small>USD</small></button><button type="button" class="${cent ? 'on acc-type-v' : ''}" disabled>Standard Cent <small>USC</small></button></div>${legacy ? `<span class="acc-type-v acc-legacy">${L('เดิม', 'Legacy')} · ${esc(cur)}</span>` : ''}${ibtn('currency-exchange', 'acc-convert', L('แปลงประเภทบัญชี…', 'Convert account…'), { 'data-id': a.id }, 'acc-conv')}</div>
     <p class="help">${legacy ? L(`บัญชีนี้สร้างไว้ด้วยสกุล ${esc(cur)} ก่อนระบบใหม่ ยังใช้งานได้ตามเดิม · แปลงเป็นบัญชี Standard (USD) หรือ Standard Cent (USC) ได้ด้วยอัตราแลกเปลี่ยน`, `Created in ${esc(cur)} before account types — still works · convert it to Standard (USD) or Standard Cent (USC) with an exchange rate`) : L('เปลี่ยนประเภทบัญชีตรงนี้ไม่ได้ — ใช้ “แปลงประเภทบัญชี” เพื่อแปลงยอดเงินและเทรดทั้งหมดไปพร้อมกัน', 'The type can’t be changed here — “Convert account” converts the balance and all trades with it')}</p></div>`;
 }
 /* snapshot / restore / apply for a whole-account conversion */
@@ -514,7 +516,7 @@ window.addEventListener('scroll', closeLifted, true); window.addEventListener('r
 /* ============================================================
    v3.62 — PROFILE: display name + avatar (stored small, square, in settings so it syncs with the cloud edition)
    ============================================================ */
-const profileName = () => (state?.settings?.profile?.name || '').trim() || 'EdgeDesk';
+const profileName = () => (state?.settings?.profile?.name || '').trim() || APP_NAME;
 function profileInitials() {
   const n = (state?.settings?.profile?.name || '').trim(); if (!n) return 'ED';
   const w = n.split(/\s+/).filter(Boolean); const first = s => [...s][0] || '';
@@ -750,13 +752,16 @@ function dpSet(clear = false) {
 function dpOpen(inp) {
   dpClose(); const sel = dpParse(inp), pop = document.createElement('div'); pop.className = 'dp-pop'; pop.setAttribute('role', 'dialog');
   document.body.append(pop); window.__dp = { inp, pop, sel, view: { y: sel.y, mo: sel.mo } }; dpRender();
-  const r = inp.getBoundingClientRect(), h = pop.offsetHeight, w = pop.offsetWidth, up = innerHeight - r.bottom < h + 12 && r.top > h + 12;
-  pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop.style.top = (up ? r.top - h - 6 : r.bottom + 6) + 'px';
+  dpPlace();
 }
+function dpPlace() { const d = window.__dp; if (!d) return; const { inp, pop } = d, r = inp.getBoundingClientRect(), h = pop.offsetHeight, w = pop.offsetWidth, up = innerHeight - r.bottom < h + 12 && r.top > h + 12;
+  pop.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop.style.top = (up ? r.top - h - 6 : r.bottom + 6) + 'px'; }
 document.addEventListener('mousedown', e => {
   const d = window.__dp; if (d && d.pop.contains(e.target)) { e.preventDefault(); return; }
   const inp = e.target.closest?.(DP_SEL);
-  if (inp && !inp.readOnly && !inp.disabled && matchMedia('(pointer:fine)').matches) { const r = inp.getBoundingClientRect(); if (e.clientX >= r.right - 38) { e.preventDefault(); inp.focus(); if (d?.inp === inp) dpClose(); else dpOpen(inp); return; } }
+  if (inp && !inp.readOnly && !inp.disabled && matchMedia('(pointer:fine)').matches) { const r = inp.getBoundingClientRect(), ic = e.clientX >= r.right - 38; // v3.83: a click anywhere in the field opens the picker; the calendar icon toggles it
+    if (ic) { e.preventDefault(); inp.focus(); if (d?.inp === inp) dpClose(); else dpOpen(inp); return; }
+    if (d?.inp !== inp) setTimeout(() => dpOpen(inp), 0); return; }
   if (d && e.target !== d.inp) dpClose();
 }, true);
 document.addEventListener('click', e => {
@@ -770,4 +775,4 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && window.__dp) { e.stopPropagation(); dpClose(); } }, true);
 addEventListener('resize', dpClose);
-document.addEventListener('scroll', e => { if (window.__dp && !window.__dp.pop.contains(e.target)) dpClose(); }, true);
+document.addEventListener('scroll', e => { const d = window.__dp; if (!d || d.pop.contains(e.target)) return; const r = d.inp.getBoundingClientRect(); if (!d.inp.isConnected || r.bottom < 0 || r.top > innerHeight) dpClose(); else dpPlace(); }, true); // v3.83: follow the field while its panel scrolls
