@@ -155,7 +155,7 @@ const A = {
   'quick-rating': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.rating = t.rating === +el.dataset.value ? null : +el.dataset.value; t.updatedAt = now(); persist(); el.closest('.stars').outerHTML = stars(t.rating, 'quick-rating').replace('class="stars input"', `class="stars input" data-id="${id}"`); },
   'quick-emotion': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.emotion = t.emotion === el.dataset.value ? '' : el.dataset.value; t.updatedAt = now(); persist(); el.closest('.emo').outerHTML = emotionPicker(t.emotion, 'quick-emotion').replace('<div class="emo', `<div data-id="${id}" class="one-row emo`); },
   'eq-mode': el => { ui.eqMode = el.dataset.value; savePrefs(); renderMain(); },
-  'eq-flow': el => { const k = el.dataset.k === 'dep' ? 'eqDep' : 'eqWd'; ui[k] = ui[k] === false; savePrefs(); renderMain(); },
+  'eq-flow': el => { const k = { dep: 'eqDep', wd: 'eqWd', cap: 'eqCap' }[el.dataset.k] || 'eqWd'; ui[k] = ui[k] === false; savePrefs(); renderMain(); },
   'cal-month': el => { let m = ui.month + +el.dataset.dir, y = ui.year; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } ui.month = m; ui.year = y; renderMain(); },
   'cal-today': () => { const t = new Date(); ui.month = t.getMonth(); ui.year = t.getFullYear(); renderMain(); },
   'cal-year': el => { ui.calYear = +el.dataset.y + +el.dataset.dir; renderMain(); },

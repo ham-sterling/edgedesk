@@ -43,6 +43,18 @@ function xTicksSVG(xs, X, H, bottom, maxTicks) {
 function axisTitle(u) { return u === 'P&L' ? `P&L (${currencySymbol(baseCurrency()) || baseCurrency()})` : u === 'R' ? 'R-Multiple' : u === '%' ? L('% เปลี่ยนแปลง', 'Change %') : u === 'Pips' ? L('ปิ๊บ', 'Pips') : u === 'Points' ? L('จุด', 'Points') : u === 'count' ? L('เทรด', 'Trades') : ''; }
 const yTitleSVG = (t, H, top, bottom) => t ? `<text class="ytitle" transform="translate(11 ${((top + H - bottom) / 2).toFixed(1)}) rotate(-90)" text-anchor="middle">${esc(t)}</text>` : '';
 /* line / area — v3.69: Element chart style: tight y scale, framed axes with ticks, x & y guides, point markers, flat translucent fill */
+/* v3.91 — smooth lines everywhere: monotone cubic (Fritsch–Carlson), so curves never overshoot the data */
+function smoothD(pts, move = true) {
+  const n = pts.length, P = (x, y) => x.toFixed(1) + ',' + y.toFixed(1); if (!n) return '';
+  if (n < 3) return pts.map((p, i) => (i || !move ? 'L' : 'M') + P(p[0], p[1])).join('');
+  const m = [], t = [];
+  for (let i = 0; i < n - 1; i++) { const dx = pts[i + 1][0] - pts[i][0]; m[i] = dx ? (pts[i + 1][1] - pts[i][1]) / dx : 0; }
+  t[0] = m[0]; t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) { if (m[i - 1] * m[i] <= 0) t[i] = 0; else { const d0 = pts[i][0] - pts[i - 1][0], d1 = pts[i + 1][0] - pts[i][0]; t[i] = 3 * (d0 + d1) / ((2 * d1 + d0) / m[i - 1] + (d1 + 2 * d0) / m[i]); } }
+  let d = (move ? 'M' : 'L') + P(pts[0][0], pts[0][1]);
+  for (let i = 0; i < n - 1; i++) { const dx = (pts[i + 1][0] - pts[i][0]) / 3; d += `C${P(pts[i][0] + dx, pts[i][1] + t[i] * dx)} ${P(pts[i + 1][0] - dx, pts[i + 1][1] - t[i + 1] * dx)} ${P(pts[i + 1][0], pts[i + 1][1])}`; }
+  return d;
+}
 function drawLine(spec, W, H, el) {
   const series = spec.series.filter(s => s.data?.length); if (!series.length) return emptyChart(spec.empty);
   if (!spec.noLegend && (series.length > 1 || spec.dd?.vals?.length)) { let rows = 1, x = 0; for (const sr of [...series, ...(spec.dd?.vals?.length ? [{ name: spec.dd.name || 'Drawdown' }] : []), ...(spec.legendExtra ? [{ name: '            ' }] : [])]) { const w = String(sr.name).length * 7 + 30; if (x + w > W && x > 0) { rows++; x = 0; } x += w; } H = Math.max(140, H - rows * 24); } // keep the legend inside the box
@@ -63,10 +75,10 @@ function drawLine(spec, W, H, el) {
     if (W >= 360 && DD.title) svg += `<text class="ytitle" transform="translate(${W - 10} ${((top + yB) / 2).toFixed(1)}) rotate(90)" text-anchor="middle">${esc(DD.title)}</text>`;
     const b = DD.band; if (b && b.i0 >= 0 && b.i1 > b.i0) { const x0 = X(b.i0), x1 = X(b.i1); svg += `<rect class="dd-band" x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${yB - top}"/>`; if (b.rec > b.i1) svg += `<rect class="dd-band rec" x="${x1.toFixed(1)}" y="${top}" width="${(X(b.rec) - x1).toFixed(1)}" height="${yB - top}"/>`; }
     const dp = DD.vals.map((v, i) => [X(i), y2(finite(v) ? v : 0)]);
-    svg += `<path class="dd-area" d="M${X(0).toFixed(1)},${y2(0).toFixed(1)}${dp.map(p => 'L' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}L${X(n - 1).toFixed(1)},${y2(0).toFixed(1)}Z"/><path class="dd-ln" d="${dp.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}"/>`;
+    const sd = smoothD(dp); svg += `<path class="dd-area" d="${sd}L${X(n - 1).toFixed(1)},${y2(0).toFixed(1)}L${X(0).toFixed(1)},${y2(0).toFixed(1)}Z"/><path class="dd-ln" d="${sd}"/>`;
   }
   series.forEach((s, si) => {
-    const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('');
+    const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = s.step ? pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('') : smoothD(pts);
     const col = s.color || 'var(--accent)';
     if (spec.signed) {
       const area = d + `L${pts[pts.length - 1][0].toFixed(1)},${z.toFixed(1)}L${pts[0][0].toFixed(1)},${z.toFixed(1)}Z`;
@@ -76,7 +88,7 @@ function drawLine(spec, W, H, el) {
       if (dots) svg += pts.map((p, i) => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${s.data[i].y >= 0 ? 'var(--pos)' : 'var(--neg)'}"/>`).join('');
     } else {
       if (s.area) { const base = s.color === 'var(--neg)' || spec.fillTo === 'zero' ? z : yB, area = d + `L${pts[pts.length - 1][0].toFixed(1)},${base.toFixed(1)}L${pts[0][0].toFixed(1)},${base.toFixed(1)}Z`; svg += `<path d="${area}" fill="${col}" fill-opacity="${s.fillOpacity ?? .2}"/>`; }
-      svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `stroke-width="${s.width}"` : ''}/>`;
+      svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `style="stroke-width:${s.width}px"` : ''}/>`;
       if (dots && s.dots !== false && !s.dash) svg += pts.map(p => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${col}"/>`).join('');
     }
     if (!dots && s.endDot !== false && pts.length) { const p = pts[pts.length - 1]; svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" class="enddot" fill="${spec.signed ? (s.data[s.data.length - 1].y >= 0 ? 'var(--pos)' : 'var(--neg)') : col}"/>`; }
@@ -155,10 +167,10 @@ function drawScatter(spec, W, H, el) {
 function drawBand(spec, W, H, el) {
   const b = spec.bands; if (!b?.length) return emptyChart(spec.empty);
   const vals = b.flatMap(x => [x.p5, x.p95]), f = axisFmt('P&L'), top = 12, bottom = 26, { y, ticks } = yScaleFor(vals.concat([spec.start]), H, top, bottom, false), left = leftPad(ticks, f), right = 12;
-  const X = i => left + i / (b.length - 1) * (W - left - right), path = k => b.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
-  const area = (a, c) => path(a) + b.slice().reverse().map((p, i) => 'L' + X(b.length - 1 - i).toFixed(1) + ',' + y(p[c]).toFixed(1)).join('') + 'Z';
+  const X = i => left + i / (b.length - 1) * (W - left - right), path = k => smoothD(b.map((p, i) => [X(i), y(p[k])]));
+  const area = (a, c) => path(a) + smoothD(b.map((p, i) => [X(i), y(p[c])]).reverse(), false) + 'Z';
   let svg = gridSVG(ticks, y, left, right, W, f);
-  (spec.sample || []).forEach(p => { svg += `<path d="${p.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + y(v).toFixed(1)).join('')}" class="ln thin" stroke="var(--dim)" opacity=".18"/>`; });
+  (spec.sample || []).forEach(p => { svg += `<path d="${smoothD(p.map((v, i) => [X(i), y(v)]))}" class="ln thin" stroke="var(--dim)" opacity=".18"/>`; });
   svg += `<path d="${area('p95', 'p5')}" fill="var(--accent)" opacity=".12"/><path d="${area('p75', 'p25')}" fill="var(--accent)" opacity=".2"/><path d="${path('p50')}" class="ln" stroke="var(--accent)"/>`;
   svg += `<line class="grid zero" x1="${left}" x2="${W - right}" y1="${y(spec.start)}" y2="${y(spec.start)}" stroke-dasharray="4 4"/>`;
   svg += [0, Math.round(b.length / 2), b.length - 1].map((i, k) => `<text class="xlab" x="${X(i)}" y="${H - bottom + 17}" text-anchor="${k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}">${L('ไม้ที่ ', 'Trade ')}${b[i].x}</text>`).join('');
@@ -179,6 +191,7 @@ function onChartMove(e) {
     if (Lo.kind === 'band') { const p = Lo.b[i]; chartTip(`<b>${L('ไม้ที่', 'Trade')} ${p.x}</b><div>P95 <strong>${money(p.p95)}</strong></div><div>P50 <strong>${money(p.p50)}</strong></div><div>P5 <strong>${money(p.p5)}</strong></div>`, e.clientX, e.clientY); return; }
     let head = '', rowsH = '';
     Lo.series.forEach((s, si) => { const p = s.data[i], dot = svg.querySelector(`.hdot[data-s="${si}"]`); if (!p) { dot.style.display = 'none'; return; } dot.style.display = ''; dot.setAttribute('cx', x); dot.setAttribute('cy', Lo.y(p.y)); head ||= p.tip || xLabel(p.x) + (/^\d{4}-\d{2}-\d{2}$/.test(p.x) ? ' ' + String(p.x).slice(0, 4) : ''); rowsH += `<div>${Lo.series.length > 1 || Lo.dd ? `<i style="background:${s.color}"></i>${esc(s.name)} ` : ''}<strong class="${tone(p.y)}">${esc(Lo.f(p.y))}</strong>${p.label ? ` <span class="dim">· ${esc(p.label)}</span>` : ''}</div>`; });
+    const nt = svg.querySelector('.dd-note'); if (nt && Lo.dd?.band) { const b = Lo.dd.band; nt.classList.toggle('on', i >= b.i0 && i <= (b.rec > b.i1 ? b.rec : b.i1)); } // v3.91: the max-drawdown note shows only while pointing at that period
     if (Lo.dd && finite(Lo.dd.vals[i])) rowsH += `<div><i class="dd-sw"></i>${esc(Lo.dd.name || 'Drawdown')} <strong class="${Lo.dd.vals[i] < -1e-12 ? 'neg' : ''}">${esc((Lo.dd.tipFmt || (v => fmt(v, 2) + '%'))(Lo.dd.vals[i]))}</strong></div>`;
     chartTip(`<b>${esc(head)}</b>${rowsH}`, e.clientX, e.clientY);
   } else if (Lo.kind === 'bar') {
@@ -194,13 +207,13 @@ function onChartMove(e) {
     chartTip(`<b>${esc(d.label || '')}</b><div>${esc(d.xTip || (Lo.xFmt ? Lo.xFmt(d.x) : fmt(d.x)))} · <strong class="${tone(d.y)}">${esc(Lo.f(d.y))}</strong></div>${d.sub ? `<div class="dim">${esc(d.sub)}</div>` : ''}`, e.clientX, e.clientY);
   }
 }
-function onChartLeave(e) { const el = e.target.closest?.('[data-chart]'); if (!el) return; el.querySelectorAll('.xhair,.hdot,.hband').forEach(x => x.style.display = 'none'); chartTip(''); }
+function onChartLeave(e) { const el = e.target.closest?.('[data-chart]'); if (!el) return; el.querySelectorAll('.dd-note.on').forEach(x => x.classList.remove('on')); el.querySelectorAll('.xhair,.hdot,.hband').forEach(x => x.style.display = 'none'); chartTip(''); }
 
 /* ---------- static mini visuals ---------- */
 function sparkline(vals, w = 120, h = 40, signed = true) {
   const v = vals.filter(finite); if (v.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
   const lo = Math.min(...v, 0), hi = Math.max(...v, 0), X = i => 2 + i / (v.length - 1) * (w - 4), Y = x => 3 + (hi - x) / ((hi - lo) || 1) * (h - 6);
-  const d = v.map((x, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(x).toFixed(1)).join(''), col = signed ? (v[v.length - 1] >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)';
+  const d = smoothD(v.map((x, i) => [X(i), Y(x)])), col = signed ? (v[v.length - 1] >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)';
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}L${X(v.length - 1)},${Y(0)}L2,${Y(0)}Z" fill="${col}" opacity=".12"/><path d="${d}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
 }
 function arcGauge(pct, cls = 'accent', w = 104) {

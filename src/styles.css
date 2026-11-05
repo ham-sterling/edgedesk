@@ -1992,3 +1992,8 @@ i.dd-sw{display:inline-block;width:12px;height:9px;border-radius:2px;background:
 .eq-panel>.panel-h>.panel-tools{flex:1;min-width:0}
 .eq-panel .eq-legend{position:static;transform:none;margin:0 auto;padding:0 12px}
 @media (max-width:1180px){.eq-panel .eq-legend{order:3;width:100%;margin:6px 0 0}.eq-panel>.panel-h>.panel-tools{flex-wrap:wrap}}
+
+/* v3.91 — smooth lines; drawdown note on hover; 1px capital line with its own toggle */
+.dd-note{opacity:0;transition:opacity .15s;pointer-events:none}.dd-note.on{opacity:1}
+.eq-dash{display:inline-block;width:14px;height:0;border-top:1px dashed var(--muted);flex:none}
+.eq-lg i.sw.cap{height:0;background:none;border-top:1px dashed var(--muted)}

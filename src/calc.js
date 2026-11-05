@@ -22,7 +22,7 @@ function specOf(t) { return specFor(t.instrumentSnapshot?.id === t.instrumentId 
 function commissionPerLotFor(ins, accountId) { const cur = get('accounts', accountId)?.currency, c = centOverrides(ins); if (isCent(cur) && c.commissionPerLot > 0) return c.commissionPerLot; if (!(ins?.commissionPerLot > 0)) return null; if (!isCent(cur)) return ins.commissionPerLot; const cs = centSpec(ins, cur).contractSize, k = ins.contractSize > 0 && cs > 0 ? cs / ins.contractSize : 1; return +(ins.commissionPerLot * centMul(cur) * k).toPrecision(12); }
 function pipSizeOf(t) { const h = specOf(t)?.pipSize, c = get('instruments', t.instrumentId)?.pipSize; return h > 0 ? h : c > 0 ? c : null; }
 /* profit-currency value of a 1.0 price move on 1 lot — MT5 SYMBOL_CALC_MODE:
-   Forex · Forex No Leverage · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
+   Forex · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
    Futures → (close − open) × Tick value ÷ Tick size × Lots
    specs saved before v3.46 (no calcMode, e.g. trade snapshots) keep the tick-value formula */
 function unitRate(i) {
@@ -64,13 +64,12 @@ function tickRate(t) {
 }
 /* margin per MT5 SYMBOL_CALC_MODE, converted to the account currency
    Forex:              Lots × Contract size ÷ Leverage × Margin rate        (base currency)
-   Forex No Leverage:  Lots × Contract size × Margin rate                   (base currency)
    Contracts:          Lots × Contract size × Price × Margin rate
    Contracts Leverage: Lots × Contract size × Price ÷ Leverage × Margin rate
    Futures:            Lots × Initial margin × Margin rate */
 function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
   const i = spec || specFor(get('instruments', instrumentId), accountId), a = get('accounts', accountId);
-  const mode = i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol), lev = a?.leverage > 0 ? a.leverage : null;
+  const mode = calcModeNorm(i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol)), lev = a?.leverage > 0 ? a.leverage : null;
   const out = { v: null, mode, lev, need: [] };
   if (!i || !(lots > 0) || !(price > 0)) return out;
   const cs = i.contractSize || 0, mr = i.marginRate > 0 ? i.marginRate : null, ac = a?.currency, vc = i.valueCurrency || i.quoteCurrency;
@@ -78,9 +77,9 @@ function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
   if ((mode === 'Forex' || mode === 'Contracts Leverage') && !lev) out.need.push('leverage');
   if (mode === 'Futures' && !(i.initialMargin > 0)) out.need.push('initialMargin');
   if (out.need.length) return out;
-  let v = { 'Forex': lots * cs / lev * mr, 'Forex No Leverage': lots * cs * mr, 'Contracts': lots * cs * price * mr, 'Contracts Leverage': lots * cs * price / lev * mr, 'Futures': lots * i.initialMargin * mr }[mode];
+  let v = { 'Forex': lots * cs / lev * mr, 'Contracts': lots * cs * price * mr, 'Contracts Leverage': lots * cs * price / lev * mr, 'Futures': lots * i.initialMargin * mr }[mode];
   if (!finite(v)) return out;
-  if (mode === 'Forex' || mode === 'Forex No Leverage') { if (i.baseCurrency && (i.baseCurrency === ac || i.baseCurrency === centParent(ac))) return { ...out, v: v * (i.baseCurrency === ac ? 1 : centMul(ac)) }; v *= price; } // base → quote
+  if (mode === 'Forex') { if (i.baseCurrency && (i.baseCurrency === ac || i.baseCurrency === centParent(ac))) return { ...out, v: v * (i.baseCurrency === ac ? 1 : centMul(ac)) }; v *= price; } // base → quote
   const fx = fxFactor(vc, ac, fxRate);
   if (fx == null) { out.need.push('fxRate'); return out; }
   return { ...out, v: v * fx };

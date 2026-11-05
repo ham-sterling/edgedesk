@@ -135,7 +135,7 @@ async function insCtApply() {
     for (const [k, raw] of Object.entries(d)) {
       if (k.startsWith('cent_')) { const kk = k.slice(5), v = String(raw).trim() === '' ? null : num(raw); if (v != null && !(v >= 0)) { bad(L('ค่าไม่ถูกต้อง', 'invalid value')); continue; } const c = { ...(i.cent || {}) }; if (v == null) delete c[kk]; else c[kk] = v; if (Object.keys(c).length) i.cent = c; else delete i.cent; if (kk === 'contractSize' && v != null && !(v > 0)) bad(L('ขนาดสัญญา (Cent) ต้องมากกว่า 0', 'Cent contract size must be > 0')); continue; }
       if (['symbol', 'name'].includes(k)) { i[k] = k === 'symbol' ? String(raw).trim().toUpperCase() : String(raw).trim(); continue; }
-      if (['assetClass', 'calcMode'].includes(k)) { i[k] = raw; continue; }
+      if (['assetClass', 'calcMode'].includes(k)) { i[k] = k === 'calcMode' ? calcModeNorm(raw) : raw; continue; }
       if (['baseCurrency', 'quoteCurrency'].includes(k)) { i[k] = String(raw || '').toUpperCase(); if (k === 'quoteCurrency') i.valueCurrency = i[k]; continue; }
       const v = String(raw).trim() === '' ? null : num(raw);
       if (['contractSize', 'quantityStep', 'minQuantity', 'maxQuantity', 'decimals'].includes(k) && v == null) { bad(L('ต้องกรอกทุกช่องของสเปกหลัก', 'required value is empty')); continue; }
@@ -177,7 +177,7 @@ async function saveInstrument() {
   if (state.instruments.some(x => x.symbol === sym && x.id !== editor.record.id)) return toast(L('มีสัญลักษณ์นี้แล้ว', 'Symbol already exists'), 'bad');
   const i = { ...editor.record, symbol: sym, name: d.name || instrumentName(sym, d.assetClass, d.baseCurrency, d.quoteCurrency), assetClass: d.assetClass, baseCurrency: String(d.baseCurrency || '').toUpperCase(), quoteCurrency: String(d.quoteCurrency || '').toUpperCase(), valueCurrency: String(d.valueCurrency || d.quoteCurrency || '').toUpperCase(), active: $('#f_ins_active') ? $('#f_ins_active').checked : !!d.active, updatedAt: now() };
   for (const k of ['decimals', 'contractSize', 'multiplier', 'tickSize', 'tickValue', 'pipSize', 'minQuantity', 'maxQuantity', 'quantityStep', 'commissionPerLot', 'spread', 'marginRate', 'initialMargin']) i[k] = num(d[k]);
-  i.calcMode = CALC_MODES.includes(d.calcMode) ? d.calcMode : defaultCalcMode(i.assetClass, sym); delete i.calculation;
+  i.calcMode = CALC_MODES.includes(calcModeNorm(d.calcMode)) ? calcModeNorm(d.calcMode) : defaultCalcMode(i.assetClass, sym); delete i.calculation;
   { const cent = {}; for (const k of CENT_SPEC_KEYS) { const v = num(d['cent_' + k]); if (finite(v) && v >= 0) cent[k] = v; } // v3.64 — cent-account spec (blank = same as Standard)
     if (i.calcMode !== 'Futures') delete cent.tickValue;
     if ('contractSize' in cent && !(cent.contractSize > 0)) return toast(L('ขนาดสัญญา (Standard Cent) ต้องมากกว่า 0', 'Contract size (Standard Cent) must be > 0'), 'bad');

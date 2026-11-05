@@ -3,7 +3,7 @@
    Tickmeta (formerly EdgeDesk) — Trading Journal · storage keys keep the edgedesk-* names so existing data loads
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'Tickmeta', APP_VERSION = '3.90.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'Tickmeta', APP_VERSION = '3.93.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -220,7 +220,7 @@ function setupSync() {
 }
 function setSaveLabel(t, bad = false) { const el = $('#save-state'); if (el) { el.textContent = t; el.classList.toggle('neg', bad); } }
 function savePrefs() {
-  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, eqMode: ui.eqMode, eqDep: ui.eqDep, eqWd: ui.eqWd, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, eqMode: ui.eqMode, eqDep: ui.eqDep, eqWd: ui.eqWd, eqCap: ui.eqCap, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
 }
 function loadPrefs() {
   try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch { }
@@ -300,17 +300,16 @@ function instrumentName(symbol, assetClass = '', base = '', quote = '') {
 }
 const INDEX_CONTRACT = 1; // v3.49: back to the broker spec — 1 lot = 1 per index point (v3.45–3.48 used 100 by mistake)
 /* MT5 Specification › Calculation */
-const CALC_MODES = ['Forex', 'Forex No Leverage', 'Contracts', 'Contracts Leverage', 'Futures'];
+const CALC_MODES = ['Forex', 'Contracts', 'Contracts Leverage', 'Futures']; // v3.93: 'Forex No Leverage' removed — it always gave the same profit and margin as Contracts
+const calcModeNorm = m => m === 'Forex No Leverage' ? 'Contracts' : m;
 const CALC_MODE_INFO = () => ({
   'Forex': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา ÷ เลเวอเรจ × Margin rate (สกุลเงินฐาน)', 'Profit = price change × contract size × lots · Margin = lots × contract size ÷ leverage × margin rate (base currency)'),
-  'Forex No Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × margin rate (no leverage)'),
   'Contracts': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × price × margin rate (no leverage)'),
   'Contracts Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา ÷ เลเวอเรจ × Margin rate', 'Profit = price change × contract size × lots · Margin = lots × contract size × price ÷ leverage × margin rate'),
   'Futures': L('กำไร = ส่วนต่างราคา × มูลค่าติ๊ก ÷ ขนาดติ๊ก × ล็อต · มาร์จิ้น = ล็อต × Initial margin × Margin rate', 'Profit = price change × tick value ÷ tick size × lots · Margin = lots × initial margin × margin rate'),
 });
 function defaultCalcMode(assetClass, symbol = '') {
   if (assetClass === 'Forex') return 'Forex';
-  if (assetClass === 'Cryptocurrencies') return 'Forex No Leverage';
   if (assetClass === 'Metals' && /^XAU/i.test(symbol)) return 'Contracts Leverage';
   if (assetClass === 'Futures') return 'Futures';
   return 'Contracts';
@@ -389,6 +388,8 @@ function migrate(raw) {
   if (!d.meta.v345) migrateV345(d);
   if (!d.meta.v346) migrateV346(d);
   if (!d.meta.v349) migrateV349(d);
+  for (const i of d.instruments || []) if (i.calcMode === 'Forex No Leverage') i.calcMode = 'Contracts'; // v3.93: same numbers, one name
+  for (const t of d.trades || []) if (t.instrumentSnapshot?.calcMode === 'Forex No Leverage') t.instrumentSnapshot.calcMode = 'Contracts';
   if (!d.meta.v347) { d.meta.v347 = true; for (const pb of d.playbooks || []) if (pb.status !== 'Inactive') pb.status = 'Active'; } // v3.47: Active / Inactive only
   return d;
 }
