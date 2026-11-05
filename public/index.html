@@ -2191,6 +2191,11 @@ i.dd-sw{display:inline-block;width:12px;height:9px;border-radius:2px;background:
 .eq-panel>.panel-h>.panel-tools{flex:1;min-width:0}
 .eq-panel .eq-legend{position:static;transform:none;margin:0 auto;padding:0 12px}
 @media (max-width:1180px){.eq-panel .eq-legend{order:3;width:100%;margin:6px 0 0}.eq-panel>.panel-h>.panel-tools{flex-wrap:wrap}}
+
+/* v3.91 — smooth lines; drawdown note on hover; 1px capital line with its own toggle */
+.dd-note{opacity:0;transition:opacity .15s;pointer-events:none}.dd-note.on{opacity:1}
+.eq-dash{display:inline-block;width:14px;height:0;border-top:1px dashed var(--muted);flex:none}
+.eq-lg i.sw.cap{height:0;background:none;border-top:1px dashed var(--muted)}
 </style></head>
 <body><div id="app"></div><div id="drawer-root"></div><div id="modal-root"></div><div id="toasts" aria-live="polite"></div><div id="charttip" role="tooltip"></div><input type="file" id="fileinput" hidden>
 <script>'use strict';
@@ -2205,7 +2210,7 @@ const ICON_LIBRARY={"cfd-cl":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgA
    Tickmeta (formerly EdgeDesk) — Trading Journal · storage keys keep the edgedesk-* names so existing data loads
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'Tickmeta', APP_VERSION = '3.90.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'Tickmeta', APP_VERSION = '3.93.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -2422,7 +2427,7 @@ function setupSync() {
 }
 function setSaveLabel(t, bad = false) { const el = $('#save-state'); if (el) { el.textContent = t; el.classList.toggle('neg', bad); } }
 function savePrefs() {
-  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, eqMode: ui.eqMode, eqDep: ui.eqDep, eqWd: ui.eqWd, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, eqMode: ui.eqMode, eqDep: ui.eqDep, eqWd: ui.eqWd, eqCap: ui.eqCap, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
 }
 function loadPrefs() {
   try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch { }
@@ -2502,17 +2507,16 @@ function instrumentName(symbol, assetClass = '', base = '', quote = '') {
 }
 const INDEX_CONTRACT = 1; // v3.49: back to the broker spec — 1 lot = 1 per index point (v3.45–3.48 used 100 by mistake)
 /* MT5 Specification › Calculation */
-const CALC_MODES = ['Forex', 'Forex No Leverage', 'Contracts', 'Contracts Leverage', 'Futures'];
+const CALC_MODES = ['Forex', 'Contracts', 'Contracts Leverage', 'Futures']; // v3.93: 'Forex No Leverage' removed — it always gave the same profit and margin as Contracts
+const calcModeNorm = m => m === 'Forex No Leverage' ? 'Contracts' : m;
 const CALC_MODE_INFO = () => ({
   'Forex': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา ÷ เลเวอเรจ × Margin rate (สกุลเงินฐาน)', 'Profit = price change × contract size × lots · Margin = lots × contract size ÷ leverage × margin rate (base currency)'),
-  'Forex No Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × margin rate (no leverage)'),
   'Contracts': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา × Margin rate (ไม่ใช้เลเวอเรจ)', 'Profit = price change × contract size × lots · Margin = lots × contract size × price × margin rate (no leverage)'),
   'Contracts Leverage': L('กำไร = ส่วนต่างราคา × ขนาดสัญญา × ล็อต · มาร์จิ้น = ล็อต × ขนาดสัญญา × ราคา ÷ เลเวอเรจ × Margin rate', 'Profit = price change × contract size × lots · Margin = lots × contract size × price ÷ leverage × margin rate'),
   'Futures': L('กำไร = ส่วนต่างราคา × มูลค่าติ๊ก ÷ ขนาดติ๊ก × ล็อต · มาร์จิ้น = ล็อต × Initial margin × Margin rate', 'Profit = price change × tick value ÷ tick size × lots · Margin = lots × initial margin × margin rate'),
 });
 function defaultCalcMode(assetClass, symbol = '') {
   if (assetClass === 'Forex') return 'Forex';
-  if (assetClass === 'Cryptocurrencies') return 'Forex No Leverage';
   if (assetClass === 'Metals' && /^XAU/i.test(symbol)) return 'Contracts Leverage';
   if (assetClass === 'Futures') return 'Futures';
   return 'Contracts';
@@ -2591,6 +2595,8 @@ function migrate(raw) {
   if (!d.meta.v345) migrateV345(d);
   if (!d.meta.v346) migrateV346(d);
   if (!d.meta.v349) migrateV349(d);
+  for (const i of d.instruments || []) if (i.calcMode === 'Forex No Leverage') i.calcMode = 'Contracts'; // v3.93: same numbers, one name
+  for (const t of d.trades || []) if (t.instrumentSnapshot?.calcMode === 'Forex No Leverage') t.instrumentSnapshot.calcMode = 'Contracts';
   if (!d.meta.v347) { d.meta.v347 = true; for (const pb of d.playbooks || []) if (pb.status !== 'Inactive') pb.status = 'Active'; } // v3.47: Active / Inactive only
   return d;
 }
@@ -3132,7 +3138,7 @@ function specOf(t) { return specFor(t.instrumentSnapshot?.id === t.instrumentId 
 function commissionPerLotFor(ins, accountId) { const cur = get('accounts', accountId)?.currency, c = centOverrides(ins); if (isCent(cur) && c.commissionPerLot > 0) return c.commissionPerLot; if (!(ins?.commissionPerLot > 0)) return null; if (!isCent(cur)) return ins.commissionPerLot; const cs = centSpec(ins, cur).contractSize, k = ins.contractSize > 0 && cs > 0 ? cs / ins.contractSize : 1; return +(ins.commissionPerLot * centMul(cur) * k).toPrecision(12); }
 function pipSizeOf(t) { const h = specOf(t)?.pipSize, c = get('instruments', t.instrumentId)?.pipSize; return h > 0 ? h : c > 0 ? c : null; }
 /* profit-currency value of a 1.0 price move on 1 lot — MT5 SYMBOL_CALC_MODE:
-   Forex · Forex No Leverage · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
+   Forex · Contracts (CFD) · Contracts Leverage → (close − open) × Contract size × Lots
    Futures → (close − open) × Tick value ÷ Tick size × Lots
    specs saved before v3.46 (no calcMode, e.g. trade snapshots) keep the tick-value formula */
 function unitRate(i) {
@@ -3174,13 +3180,12 @@ function tickRate(t) {
 }
 /* margin per MT5 SYMBOL_CALC_MODE, converted to the account currency
    Forex:              Lots × Contract size ÷ Leverage × Margin rate        (base currency)
-   Forex No Leverage:  Lots × Contract size × Margin rate                   (base currency)
    Contracts:          Lots × Contract size × Price × Margin rate
    Contracts Leverage: Lots × Contract size × Price ÷ Leverage × Margin rate
    Futures:            Lots × Initial margin × Margin rate */
 function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
   const i = spec || specFor(get('instruments', instrumentId), accountId), a = get('accounts', accountId);
-  const mode = i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol), lev = a?.leverage > 0 ? a.leverage : null;
+  const mode = calcModeNorm(i?.calcMode || defaultCalcMode(i?.assetClass, i?.symbol)), lev = a?.leverage > 0 ? a.leverage : null;
   const out = { v: null, mode, lev, need: [] };
   if (!i || !(lots > 0) || !(price > 0)) return out;
   const cs = i.contractSize || 0, mr = i.marginRate > 0 ? i.marginRate : null, ac = a?.currency, vc = i.valueCurrency || i.quoteCurrency;
@@ -3188,9 +3193,9 @@ function marginOf({ instrumentId, accountId, price, lots, fxRate, spec }) {
   if ((mode === 'Forex' || mode === 'Contracts Leverage') && !lev) out.need.push('leverage');
   if (mode === 'Futures' && !(i.initialMargin > 0)) out.need.push('initialMargin');
   if (out.need.length) return out;
-  let v = { 'Forex': lots * cs / lev * mr, 'Forex No Leverage': lots * cs * mr, 'Contracts': lots * cs * price * mr, 'Contracts Leverage': lots * cs * price / lev * mr, 'Futures': lots * i.initialMargin * mr }[mode];
+  let v = { 'Forex': lots * cs / lev * mr, 'Contracts': lots * cs * price * mr, 'Contracts Leverage': lots * cs * price / lev * mr, 'Futures': lots * i.initialMargin * mr }[mode];
   if (!finite(v)) return out;
-  if (mode === 'Forex' || mode === 'Forex No Leverage') { if (i.baseCurrency && (i.baseCurrency === ac || i.baseCurrency === centParent(ac))) return { ...out, v: v * (i.baseCurrency === ac ? 1 : centMul(ac)) }; v *= price; } // base → quote
+  if (mode === 'Forex') { if (i.baseCurrency && (i.baseCurrency === ac || i.baseCurrency === centParent(ac))) return { ...out, v: v * (i.baseCurrency === ac ? 1 : centMul(ac)) }; v *= price; } // base → quote
   const fx = fxFactor(vc, ac, fxRate);
   if (fx == null) { out.need.push('fxRate'); return out; }
   return { ...out, v: v * fx };
@@ -3617,6 +3622,18 @@ function xTicksSVG(xs, X, H, bottom, maxTicks) {
 function axisTitle(u) { return u === 'P&L' ? `P&L (${currencySymbol(baseCurrency()) || baseCurrency()})` : u === 'R' ? 'R-Multiple' : u === '%' ? L('% เปลี่ยนแปลง', 'Change %') : u === 'Pips' ? L('ปิ๊บ', 'Pips') : u === 'Points' ? L('จุด', 'Points') : u === 'count' ? L('เทรด', 'Trades') : ''; }
 const yTitleSVG = (t, H, top, bottom) => t ? `<text class="ytitle" transform="translate(11 ${((top + H - bottom) / 2).toFixed(1)}) rotate(-90)" text-anchor="middle">${esc(t)}</text>` : '';
 /* line / area — v3.69: Element chart style: tight y scale, framed axes with ticks, x & y guides, point markers, flat translucent fill */
+/* v3.91 — smooth lines everywhere: monotone cubic (Fritsch–Carlson), so curves never overshoot the data */
+function smoothD(pts, move = true) {
+  const n = pts.length, P = (x, y) => x.toFixed(1) + ',' + y.toFixed(1); if (!n) return '';
+  if (n < 3) return pts.map((p, i) => (i || !move ? 'L' : 'M') + P(p[0], p[1])).join('');
+  const m = [], t = [];
+  for (let i = 0; i < n - 1; i++) { const dx = pts[i + 1][0] - pts[i][0]; m[i] = dx ? (pts[i + 1][1] - pts[i][1]) / dx : 0; }
+  t[0] = m[0]; t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) { if (m[i - 1] * m[i] <= 0) t[i] = 0; else { const d0 = pts[i][0] - pts[i - 1][0], d1 = pts[i + 1][0] - pts[i][0]; t[i] = 3 * (d0 + d1) / ((2 * d1 + d0) / m[i - 1] + (d1 + 2 * d0) / m[i]); } }
+  let d = (move ? 'M' : 'L') + P(pts[0][0], pts[0][1]);
+  for (let i = 0; i < n - 1; i++) { const dx = (pts[i + 1][0] - pts[i][0]) / 3; d += `C${P(pts[i][0] + dx, pts[i][1] + t[i] * dx)} ${P(pts[i + 1][0] - dx, pts[i + 1][1] - t[i + 1] * dx)} ${P(pts[i + 1][0], pts[i + 1][1])}`; }
+  return d;
+}
 function drawLine(spec, W, H, el) {
   const series = spec.series.filter(s => s.data?.length); if (!series.length) return emptyChart(spec.empty);
   if (!spec.noLegend && (series.length > 1 || spec.dd?.vals?.length)) { let rows = 1, x = 0; for (const sr of [...series, ...(spec.dd?.vals?.length ? [{ name: spec.dd.name || 'Drawdown' }] : []), ...(spec.legendExtra ? [{ name: '            ' }] : [])]) { const w = String(sr.name).length * 7 + 30; if (x + w > W && x > 0) { rows++; x = 0; } x += w; } H = Math.max(140, H - rows * 24); } // keep the legend inside the box
@@ -3637,10 +3654,10 @@ function drawLine(spec, W, H, el) {
     if (W >= 360 && DD.title) svg += `<text class="ytitle" transform="translate(${W - 10} ${((top + yB) / 2).toFixed(1)}) rotate(90)" text-anchor="middle">${esc(DD.title)}</text>`;
     const b = DD.band; if (b && b.i0 >= 0 && b.i1 > b.i0) { const x0 = X(b.i0), x1 = X(b.i1); svg += `<rect class="dd-band" x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${yB - top}"/>`; if (b.rec > b.i1) svg += `<rect class="dd-band rec" x="${x1.toFixed(1)}" y="${top}" width="${(X(b.rec) - x1).toFixed(1)}" height="${yB - top}"/>`; }
     const dp = DD.vals.map((v, i) => [X(i), y2(finite(v) ? v : 0)]);
-    svg += `<path class="dd-area" d="M${X(0).toFixed(1)},${y2(0).toFixed(1)}${dp.map(p => 'L' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}L${X(n - 1).toFixed(1)},${y2(0).toFixed(1)}Z"/><path class="dd-ln" d="${dp.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}"/>`;
+    const sd = smoothD(dp); svg += `<path class="dd-area" d="${sd}L${X(n - 1).toFixed(1)},${y2(0).toFixed(1)}L${X(0).toFixed(1)},${y2(0).toFixed(1)}Z"/><path class="dd-ln" d="${sd}"/>`;
   }
   series.forEach((s, si) => {
-    const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('');
+    const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = s.step ? pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('') : smoothD(pts);
     const col = s.color || 'var(--accent)';
     if (spec.signed) {
       const area = d + `L${pts[pts.length - 1][0].toFixed(1)},${z.toFixed(1)}L${pts[0][0].toFixed(1)},${z.toFixed(1)}Z`;
@@ -3650,7 +3667,7 @@ function drawLine(spec, W, H, el) {
       if (dots) svg += pts.map((p, i) => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${s.data[i].y >= 0 ? 'var(--pos)' : 'var(--neg)'}"/>`).join('');
     } else {
       if (s.area) { const base = s.color === 'var(--neg)' || spec.fillTo === 'zero' ? z : yB, area = d + `L${pts[pts.length - 1][0].toFixed(1)},${base.toFixed(1)}L${pts[0][0].toFixed(1)},${base.toFixed(1)}Z`; svg += `<path d="${area}" fill="${col}" fill-opacity="${s.fillOpacity ?? .2}"/>`; }
-      svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `stroke-width="${s.width}"` : ''}/>`;
+      svg += `<path d="${d}" class="ln${s.dash ? ' dash' : ''}" stroke="${col}" ${s.width ? `style="stroke-width:${s.width}px"` : ''}/>`;
       if (dots && s.dots !== false && !s.dash) svg += pts.map(p => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${col}"/>`).join('');
     }
     if (!dots && s.endDot !== false && pts.length) { const p = pts[pts.length - 1]; svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" class="enddot" fill="${spec.signed ? (s.data[s.data.length - 1].y >= 0 ? 'var(--pos)' : 'var(--neg)') : col}"/>`; }
@@ -3729,10 +3746,10 @@ function drawScatter(spec, W, H, el) {
 function drawBand(spec, W, H, el) {
   const b = spec.bands; if (!b?.length) return emptyChart(spec.empty);
   const vals = b.flatMap(x => [x.p5, x.p95]), f = axisFmt('P&L'), top = 12, bottom = 26, { y, ticks } = yScaleFor(vals.concat([spec.start]), H, top, bottom, false), left = leftPad(ticks, f), right = 12;
-  const X = i => left + i / (b.length - 1) * (W - left - right), path = k => b.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
-  const area = (a, c) => path(a) + b.slice().reverse().map((p, i) => 'L' + X(b.length - 1 - i).toFixed(1) + ',' + y(p[c]).toFixed(1)).join('') + 'Z';
+  const X = i => left + i / (b.length - 1) * (W - left - right), path = k => smoothD(b.map((p, i) => [X(i), y(p[k])]));
+  const area = (a, c) => path(a) + smoothD(b.map((p, i) => [X(i), y(p[c])]).reverse(), false) + 'Z';
   let svg = gridSVG(ticks, y, left, right, W, f);
-  (spec.sample || []).forEach(p => { svg += `<path d="${p.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + y(v).toFixed(1)).join('')}" class="ln thin" stroke="var(--dim)" opacity=".18"/>`; });
+  (spec.sample || []).forEach(p => { svg += `<path d="${smoothD(p.map((v, i) => [X(i), y(v)]))}" class="ln thin" stroke="var(--dim)" opacity=".18"/>`; });
   svg += `<path d="${area('p95', 'p5')}" fill="var(--accent)" opacity=".12"/><path d="${area('p75', 'p25')}" fill="var(--accent)" opacity=".2"/><path d="${path('p50')}" class="ln" stroke="var(--accent)"/>`;
   svg += `<line class="grid zero" x1="${left}" x2="${W - right}" y1="${y(spec.start)}" y2="${y(spec.start)}" stroke-dasharray="4 4"/>`;
   svg += [0, Math.round(b.length / 2), b.length - 1].map((i, k) => `<text class="xlab" x="${X(i)}" y="${H - bottom + 17}" text-anchor="${k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}">${L('ไม้ที่ ', 'Trade ')}${b[i].x}</text>`).join('');
@@ -3753,6 +3770,7 @@ function onChartMove(e) {
     if (Lo.kind === 'band') { const p = Lo.b[i]; chartTip(`<b>${L('ไม้ที่', 'Trade')} ${p.x}</b><div>P95 <strong>${money(p.p95)}</strong></div><div>P50 <strong>${money(p.p50)}</strong></div><div>P5 <strong>${money(p.p5)}</strong></div>`, e.clientX, e.clientY); return; }
     let head = '', rowsH = '';
     Lo.series.forEach((s, si) => { const p = s.data[i], dot = svg.querySelector(`.hdot[data-s="${si}"]`); if (!p) { dot.style.display = 'none'; return; } dot.style.display = ''; dot.setAttribute('cx', x); dot.setAttribute('cy', Lo.y(p.y)); head ||= p.tip || xLabel(p.x) + (/^\d{4}-\d{2}-\d{2}$/.test(p.x) ? ' ' + String(p.x).slice(0, 4) : ''); rowsH += `<div>${Lo.series.length > 1 || Lo.dd ? `<i style="background:${s.color}"></i>${esc(s.name)} ` : ''}<strong class="${tone(p.y)}">${esc(Lo.f(p.y))}</strong>${p.label ? ` <span class="dim">· ${esc(p.label)}</span>` : ''}</div>`; });
+    const nt = svg.querySelector('.dd-note'); if (nt && Lo.dd?.band) { const b = Lo.dd.band; nt.classList.toggle('on', i >= b.i0 && i <= (b.rec > b.i1 ? b.rec : b.i1)); } // v3.91: the max-drawdown note shows only while pointing at that period
     if (Lo.dd && finite(Lo.dd.vals[i])) rowsH += `<div><i class="dd-sw"></i>${esc(Lo.dd.name || 'Drawdown')} <strong class="${Lo.dd.vals[i] < -1e-12 ? 'neg' : ''}">${esc((Lo.dd.tipFmt || (v => fmt(v, 2) + '%'))(Lo.dd.vals[i]))}</strong></div>`;
     chartTip(`<b>${esc(head)}</b>${rowsH}`, e.clientX, e.clientY);
   } else if (Lo.kind === 'bar') {
@@ -3768,13 +3786,13 @@ function onChartMove(e) {
     chartTip(`<b>${esc(d.label || '')}</b><div>${esc(d.xTip || (Lo.xFmt ? Lo.xFmt(d.x) : fmt(d.x)))} · <strong class="${tone(d.y)}">${esc(Lo.f(d.y))}</strong></div>${d.sub ? `<div class="dim">${esc(d.sub)}</div>` : ''}`, e.clientX, e.clientY);
   }
 }
-function onChartLeave(e) { const el = e.target.closest?.('[data-chart]'); if (!el) return; el.querySelectorAll('.xhair,.hdot,.hband').forEach(x => x.style.display = 'none'); chartTip(''); }
+function onChartLeave(e) { const el = e.target.closest?.('[data-chart]'); if (!el) return; el.querySelectorAll('.dd-note.on').forEach(x => x.classList.remove('on')); el.querySelectorAll('.xhair,.hdot,.hband').forEach(x => x.style.display = 'none'); chartTip(''); }
 
 /* ---------- static mini visuals ---------- */
 function sparkline(vals, w = 120, h = 40, signed = true) {
   const v = vals.filter(finite); if (v.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
   const lo = Math.min(...v, 0), hi = Math.max(...v, 0), X = i => 2 + i / (v.length - 1) * (w - 4), Y = x => 3 + (hi - x) / ((hi - lo) || 1) * (h - 6);
-  const d = v.map((x, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(x).toFixed(1)).join(''), col = signed ? (v[v.length - 1] >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)';
+  const d = smoothD(v.map((x, i) => [X(i), Y(x)])), col = signed ? (v[v.length - 1] >= 0 ? 'var(--pos)' : 'var(--neg)') : 'var(--accent)';
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}L${X(v.length - 1)},${Y(0)}L2,${Y(0)}Z" fill="${col}" opacity=".12"/><path d="${d}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
 }
 function arcGauge(pct, cls = 'accent', w = 104) {
@@ -4048,7 +4066,7 @@ const GLOSS = () => {
     rrNet: { name: T('R:R (หลังต้นทุน)', 'R:R (after costs)'), def: T('อัตราส่วนกำไรต่อความเสี่ยงของแผนเทรด ค่าในวงเล็บหักต้นทุน (สเปรด + ค่าคอมมิชชัน) แล้ว', 'Reward-to-risk of the plan; the value in brackets includes costs (spread + commission)'), f: `R:R = ${frac(T('ระยะ T/P', 'T/P distance'), T('ระยะ S/L', 'S/L distance'))}<div class="gl-sub">${T('หลังต้นทุน', 'After costs')} = ${frac(T('ระยะ T/P − ต้นทุน', 'T/P distance − cost'), T('ระยะ S/L + ต้นทุน', 'S/L distance + cost'))}</div>` },
     beWinRate: { name: T('อัตราชนะคุ้มทุน', 'Break-even win rate'), def: T('อัตราชนะขั้นต่ำที่ทำให้แผนนี้ไม่ขาดทุนในระยะยาว', 'The lowest win rate at which this plan stops losing money over time'), f: `${frac('1', T('1 + R:R หลังต้นทุน', '1 + R:R after costs'))} × 100` },
     positionSize: { name: T('ขนาดสัญญา', 'Position size'), def: T('จำนวนล็อตที่ทำให้ขาดทุนเท่างบความเสี่ยงพอดีเมื่อโดน S/L ปัดลงตาม step ของสินทรัพย์', 'Lots that lose exactly the risk budget at the S/L, rounded down to the volume step'), f: `${T('ขนาด', 'Size')} = ${frac(T('งบความเสี่ยง', 'Risk budget'), T('ระยะ S/L × มูลค่าต่อหน่วยราคาต่อ 1 ล็อต', 'S/L distance × value per price unit per lot'))}` },
-    calcMode: { name: T('การคำนวณ (Calculation)', 'Calculation'), def: T('โหมดคำนวณของ MT5 ดูได้ใน Specification ของสัญลักษณ์ · Forex, Forex No Leverage, Contracts และ Contracts Leverage คิดกำไรแบบเดียวกัน ต่างกันที่มาร์จิ้น · Futures คิดกำไรจากมูลค่าติ๊ก', 'MT5 calculation mode, shown in the symbol specification · Forex, Forex No Leverage, Contracts and Contracts Leverage share one profit formula and differ only in margin · Futures uses the tick value'), f: `${T('กำไร', 'Profit')} = (${T('ราคาปิด', 'close')} − ${T('ราคาเปิด', 'open')}) × ${T('ขนาดสัญญา', 'contract size')} × ${T('ล็อต', 'lots')}` },
+    calcMode: { name: T('การคำนวณ (Calculation)', 'Calculation'), def: T('โหมดคำนวณของ MT5 ดูได้ใน Specification ของสัญลักษณ์ · Forex, Contracts และ Contracts Leverage คิดกำไรแบบเดียวกัน ต่างกันที่มาร์จิ้น (Forex No Leverage ของ MT5 ใช้ Contracts) · Futures คิดกำไรจากมูลค่าติ๊ก', 'MT5 calculation mode, shown in the symbol specification · Forex, Contracts and Contracts Leverage share one profit formula and differ only in margin (MT5 Forex No Leverage → Contracts) · Futures uses the tick value'), f: `${T('กำไร', 'Profit')} = (${T('ราคาปิด', 'close')} − ${T('ราคาเปิด', 'open')}) × ${T('ขนาดสัญญา', 'contract size')} × ${T('ล็อต', 'lots')}` },
     margin: { name: T('มาร์จิ้นที่ใช้', 'Margin required'), def: T('เงินที่โบรกเกอร์กันไว้ขณะถือสถานะ คิดตามโหมดการคำนวณของสินทรัพย์ แปลงเป็นสกุลเงินบัญชี', 'Money the broker holds while the position is open, per the instrument’s calculation mode, in account currency'), f: `Contracts Leverage: ${T('ล็อต', 'lots')} × ${T('ขนาดสัญญา', 'contract')} × ${frac(T('ราคา', 'price'), T('เลเวอเรจ', 'leverage'))} × Margin rate` },
     marginRate: { name: 'Margin rate', def: T('ตัวคูณมาร์จิ้นจาก Specification ของ MT5 (Margin rates › initial) · ส่วนใหญ่เป็น 1 สำหรับ Forex · โหมด Contracts / No Leverage ใช้ค่านี้แทนเลเวอเรจ เช่น 0.01 = 1%', 'Margin coefficient from the MT5 specification (margin rates › initial) · usually 1 for Forex · Contracts / No Leverage modes use it instead of leverage, e.g. 0.01 = 1%') },
     initialMargin: { name: T('มาร์จิ้นเริ่มต้นต่อล็อต', 'Initial margin per lot'), def: T('ใช้กับโหมด Futures เท่านั้น ดูได้ใน Specification', 'Futures mode only — from the specification') },
@@ -4389,7 +4407,7 @@ function dashboardView() {
     <div class="card"><div><div class="l">${gl(L('ค่าคาดหวัง', 'Expectancy'), 'expectancy')}</div><div class="v ${tone(s.expectancy)}">${unitFmt(s.expectancy, u)}</div><div class="s">${L('เฉลี่ย', 'Average')} ${finite(s.avgR) ? fmt(s.avgR, 2, true) + 'R' : '—'}</div></div><div class="viz">${arcGauge(expPct, tone(s.expectancy) === 'muted' ? 'muted' : tone(s.expectancy))}</div></div>
     <div class="card"><div><div class="l">${gl(L('กำไรเฉลี่ย / ขาดทุนเฉลี่ย', 'Average profit / loss'), 'payoff')}</div><div class="v">${fmt(s.payU, 2)}</div><div class="s">${L('Payoff ratio', 'Payoff ratio')}</div></div><div class="viz"><div><div class="ratio-bar"><span style="width:${wp}%;background:var(--pos)"></span><span style="width:${100 - wp}%;background:var(--neg)"></span></div><div class="ratio-vals"><span class="pos">${unitFmt(s.avgWinU, u, false)}</span><span class="neg">${unitFmt(s.avgLossU, u)}</span></div></div></div></div>
   </div>`;
-  const equity = eqPanel(rows, 460, 'dash-eqdd', s, 'dash-eq');
+  const equity = eqPanel(rows, 520, 'dash-eqdd', s, 'dash-eq');
   const dailyP = U('dash-daily', u => { const daily = dailySeries(rows).slice(-45); return panel(`<span class="ul-tip" data-tip="${esc(L(`${daily.length} วันล่าสุดที่มีเทรด`, `Last ${daily.length} trading days`))}">${L('ผลรายวัน', 'Daily P&L')}</span>`, chartBox({ type: 'bar', data: daily, unit: u, fill: true }, 240), '', 'dash-daily'); }); // v3.87: sits above Recent trades, chart fills the card
   const recent = closedSorted(rows).slice(-7).reverse(), openT = rows.filter(t => t.status === 'Open');
   const recentP = panel(L('เทรดล่าสุด', 'Recent trades'), `<div class="tl">${[...openT.slice(0, 2), ...recent].slice(0, 8).map(t => { const c = calc(t); return `<div class="tl-row" data-action="view-trade" data-id="${t.id}">${insIcon(get('instruments', t.instrumentId))}<div class="grow"><strong>${esc(nameOf('instruments', t.instrumentId, 'symbol'))}</strong> ${sideBadge(t.side)}<small class="sub2">${fmtDate(t.status === 'Open' ? t.entryDateTime : t.exitDateTime, { time: true, zone: tradeZone(t) })}</small></div>${t.status === 'Open' ? badge(L('เปิดอยู่', 'OPEN'), 'st open') : `<div class="right"><strong class="${tone(c.net)}">${unitFmt(value(t), u)}</strong><small class="sub2">${finite(c.r) ? fmt(c.r, 2, true) + 'R' : ''}</small></div>`}</div>`; }).join('') || empty(L('ยังไม่มีเทรด', 'No trades yet'))}</div>`, `<a class="btn ghost sm" href="#trades">${L('ดูทั้งหมด', 'View all')} ${icon('chev-right')}</a>`);
@@ -4711,25 +4729,25 @@ function ddLines(b, xs, amt) {
 const eqLegend = items => `<div class="eq-legend">${items.map(([k, t]) => `<span class="eq-lg ${k}">${k === 'dep' || k === 'wd' ? `<i class="eq-tri ${k}"></i>` : k === 'dd' ? '<i class="dd-sw"></i>' : `<i class="sw ${k}"></i>`}${esc(t)}</span>`).join('')}</div>`;
 function eqPanel(rows, H, cls = '', s = stats(rows), key = 'dash-eq') {
   const eqMode = ui.eqMode === 'balance' ? 'balance' : 'cum', eqSeg = seg([['cum', L('กำไรสะสม', 'Cumulative P&L')], ['balance', 'Equity']], eqMode, 'eq-mode');
-  const title = L('Equity และ Drawdown', 'Equity & Drawdown'), ttl = title;
+  const title = 'Equity Curve', ttl = title; // v3.92
   const cell = (l, v, sub = '', c = '', tip = '') => { const [lf, ls] = Array.isArray(l) ? l : [l, l]; return `<div class="eq-st"><span class="l"${tip ? ` data-tip="${esc(tip)}"` : ''}><span class="lf">${lf}</span><span class="ls">${ls}</span></span><b class="${c}">${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`; };
   const ddCells = (B, f) => B ? cell([L('ช่วง Drawdown', 'Drawdown period'), L('ช่วง DD', 'DD period')], `${B.days} ${L('วัน', 'days')}`, `${fmtDate(B.from, { year: false })} → ${fmtDate(B.to, { year: false })}`, '', L('จากจุดสูงสุดถึงจุดต่ำสุดของ Drawdown ที่ลึกที่สุด', 'From the peak to the bottom of the deepest drawdown')) + cell([L('การฟื้นตัว', 'Recovery'), L('ฟื้นตัว', 'Recovery')], B.recDays != null ? `${B.recDays} ${L('วัน', 'days')}` : L('ยังไม่ฟื้น', 'Not yet'), B.recDays != null ? L('กลับไปจุดสูงสุดเดิม', 'Back to the previous peak') : L('ยังต่ำกว่าจุดสูงสุด', 'Still below the peak'), B.recDays != null ? 'pos' : 'warn', L('เวลาจากจุดต่ำสุดจนกลับไปเท่าจุดสูงสุดเดิม', 'Time from the bottom until the previous peak was reached again')) : cell([L('ช่วง Drawdown', 'Drawdown period'), L('ช่วง DD', 'DD period')], '—') + cell([L('การฟื้นตัว', 'Recovery'), L('ฟื้นตัว', 'Recovery')], '—');
   if (eqMode !== 'balance') return U(key, u => {
     const data = cumulativeSeries(rows), xs = data.map(p => p.x), T = ddTrack(data.map(p => p.y), false, 0), B = data.length ? ddLines(T, xs, unitFmt(T.min, u)) : null, s2 = stats(rows);
-    const chart = chartBox({ type: 'line', noLegend: true, series: [{ name: L('กำไรสะสม', 'Cumulative P&L'), data, area: true }], signed: true, unit: u, label: title, dd: { vals: T.dd, name: 'Drawdown', axisFmt: axisFmt(u), tipFmt: v => unitFmt(v, u), title: L('Drawdown', 'Drawdown') + (u === 'P&L' ? '' : ` (${u})`), band: B } }, H - 80);
+    const chart = chartBox({ type: 'line', noLegend: true, series: [{ name: L('กำไรสะสม', 'Cumulative P&L'), data, area: true }], signed: true, unit: u, label: L('กำไรสะสม', 'Cumulative P&L') }, H - 80); // v3.91: no drawdown layer on the cumulative view
     const strip = `<div class="eq-stats c4">${cell([L('กำไรสุทธิ', 'Net P&L'), 'Net P&L'], unitFmt(s2.total, u), `${s2.n} ${L('เทรด', 'trades')}`, tone(s2.total))}${cell(['Max drawdown', 'Max DD'], unitFmt(T.min, u), finite(s2.ddPct) && u === 'P&L' ? fmt(-Math.abs(s2.ddPct), 2) + '%' : '', T.min < 0 ? 'neg' : '')}${ddCells(B)}</div>`;
-    return panel(ttl, chart + strip, eqLegend([['pos', L('กำไรสะสม', 'Cumulative P&L')], ['dd', 'Drawdown']]) + eqSeg, cls + ' eq-panel', `<span class="hv ${tone(s2.total)}">${unitFmt(s2.total, u)}</span>`);
+    return panel(ttl, chart + strip, eqSeg, cls + ' eq-panel', `<span class="hv ${tone(s2.total)}">${unitFmt(s2.total, u)}</span>`);
   });
-  const dep = ui.eqDep !== false, wd = ui.eqWd !== false, M = equityModel(rows, dep, wd);
+  const dep = ui.eqDep !== false, wd = ui.eqWd !== false, capOn = ui.eqCap !== false, M = equityModel(rows, dep, wd);
   if (!M) return panel(ttl, chartBox({ type: 'line', series: [], empty: L('เลือกบัญชีสกุลเงินเดียวเพื่อดู Equity', 'Pick accounts in one currency to see equity') }, H), eqSeg, cls + ' eq-panel');
   const m = (v, sg) => money(v, M.cur, sg), chip = (k, on, ic, lab, n) => `<button type="button" class="eq-flow ${on ? 'on' : ''} ${k}" data-action="eq-flow" data-k="${k}" role="switch" aria-checked="${on}"><span class="eq-cb">${on ? icon('check') : ''}</span>${ic}${lab}${n ? ` <em>${n}</em>` : ''}</button>`;
-  const flows = `<div class="eq-bar" role="group" aria-label="${L('รวมในกราฟ', 'Include')}">${chip('dep', dep, '<i class="eq-tri dep"></i>', L('เงินฝาก', 'Deposits'), M.nDep)}${chip('wd', wd, '<i class="eq-tri wd"></i>', L('เงินถอน', 'Withdrawals'), M.nWd)}</div>`;
+  const flows = `<div class="eq-bar" role="group" aria-label="${L('รวมในกราฟ', 'Include')}">${chip('dep', dep, '<i class="eq-tri dep"></i>', L('เงินฝาก', 'Deposits'), M.nDep)}${chip('wd', wd, '<i class="eq-tri wd"></i>', L('เงินถอน', 'Withdrawals'), M.nWd)}${chip('cap', capOn, '<i class="eq-dash"></i>', L('เส้นเงินทุน', 'Capital'))}</div>`;
   const xs = M.pts.map(p => p.x), ddv = M.ddt.dd.map(v => v * 100), B = ddLines(M.ddt, xs, fmt(M.ddt.min * 100, 2) + '%');
-  const series = [{ name: 'Equity', data: M.pts, area: true, fillOpacity: .12 }, { name: dep || wd ? L('เงินทุนสุทธิ', 'Net capital') : L('ยอดเริ่มต้น', 'Starting balance'), data: M.capPts, dash: true, color: 'var(--muted)', dots: false, endDot: false }];
+  const capName = dep || wd ? L('เงินทุนสุทธิ', 'Net capital') : L('ยอดเริ่มต้น', 'Starting balance'), series = [{ name: 'Equity', data: M.pts, area: true, fillOpacity: .12 }, ...(capOn ? [{ name: capName, data: M.capPts, dash: true, step: true, width: 1, color: 'var(--muted)', dots: false, endDot: false }] : [])];
   const chart = chartBox({ type: 'line', noLegend: true, series, unit: 'P&L', zero: false, marks: M.marks, label: title, tipFmt: v => m(v), dd: { vals: ddv, name: 'Drawdown', title: 'Drawdown (%)', tipFmt: v => fmt(v, 2) + '%', band: B }, legendExtra: (M.nDep && dep ? `<span><i class="eq-tri dep"></i>${L('ฝาก', 'Deposit')}</span>` : '') + (M.nWd && wd ? `<span><i class="eq-tri wd"></i>${L('ถอน', 'Withdrawal')}</span>` : '') }, H - 80);
   const net = (dep ? M.dep : 0) + (wd ? M.wd : 0);
   const strip = `<div class="eq-stats">${cell(L('ยอดเริ่มต้น', 'Starting equity'), m(M.start))}${cell([L('เงินฝาก / ถอน', 'Deposits / withdrawals'), L('ฝาก-ถอนสุทธิ', 'Net flows')], m(net, true), `<span class="pos">${m(M.dep, true)}</span> · <span class="neg">${m(M.wd, true)}</span>${!dep || !wd ? ` · ${L('บางส่วนไม่รวม', 'partly excluded')}` : ''}`, tone(net), L('เงินที่ฝากเข้าและถอนออกในช่วงนี้ — ตัวเลขใหญ่คือส่วนที่รวมในกราฟ', 'Money added and taken out in this period — the big number is the part included in the chart'))}${cell([L('กำไรจากการเทรด', 'Trading P&L'), L('กำไรเทรด', 'Trading P&L')], m(M.pnl, true), `${M.nTrades} ${L('เทรด', 'trades')}${Math.abs(M.other) > 1e-9 ? ` · ${L('อื่น ๆ', 'other')} ${m(M.other, true)}` : ''}`, tone(M.pnl))}${cell(L('ยอดปลายช่วง', 'Ending equity'), m(M.end), `${L('สูงสุด', 'Peak')} ${m(M.peakEq)}`)}${cell([L('ผลตอบแทน (TWR)', 'Return (TWR)'), 'TWR'], finite(M.twr) ? fmt(M.twr * 100, 2, true) + '%' : '—', L('ไม่นับเงินฝาก-ถอน', 'Excludes cash flows'), tone(M.twr), L('ผลตอบแทนแบบถ่วงเวลา: คิดจากกำไรของแต่ละเทรดเทียบกับยอดเงินขณะนั้น เงินฝาก-ถอนจึงไม่ทำให้ผลตอบแทนสูงหรือต่ำเกินจริง', 'Time-weighted return: each trade measured against the balance at that moment, so deposits and withdrawals never inflate or shrink the result'))}${cell(['Max drawdown', 'Max DD'], finite(M.ddPct) ? fmt(M.ddPct * 100, 2) + '%' : '—', B ? `${B.days} ${L('วัน', 'days')} · ${B.recDays != null ? L(`ฟื้นใน ${B.recDays} วัน`, `recovered in ${B.recDays}d`) : L('ยังไม่ฟื้น', 'not recovered')}` : L('ถ่วงเวลา', 'Time-weighted'), M.ddPct < 0 ? 'neg' : '', L('การย่อตัวสูงสุดของผลตอบแทนแบบถ่วงเวลา — การถอนเงินไม่นับเป็น Drawdown', 'Largest drop of the time-weighted return from its peak — withdrawals never count as drawdown'))}</div>`;
-  return panel(ttl, chart + strip, eqLegend([['acc', 'Equity'], ['cap', dep || wd ? L('เงินทุนสุทธิ', 'Net capital') : L('ยอดเริ่มต้น', 'Starting balance')], ['dd', 'Drawdown'], ...(M.nDep && dep ? [['dep', L('ฝาก', 'Deposit')]] : []), ...(M.nWd && wd ? [['wd', L('ถอน', 'Withdrawal')]] : [])]) + flows + eqSeg, cls + ' eq-panel', `<span class="hv">${m(M.end)}</span>`);
+  return panel(ttl, chart + strip, eqLegend([['acc', 'Equity'], ...(capOn ? [['cap', capName]] : []), ['dd', 'Drawdown'], ...(M.nDep && dep ? [['dep', L('ฝาก', 'Deposit')]] : []), ...(M.nWd && wd ? [['wd', L('ถอน', 'Withdrawal')]] : [])]) + flows + eqSeg, cls + ' eq-panel', `<span class="hv">${m(M.end)}</span>`);
 }
 
 /* v3.89 — the bottom Dashboard row (R-multiple · By instrument · By session) is as tall as Daily P&L / Recent trades */
@@ -5024,12 +5042,12 @@ function overviewReport(rows) {
     miniCard(gl('Payoff ratio', 'payoff'), fmt(s.payU, 2), `<span class="pos">${unitFmt(s.avgWinU, ui.unit, false)}</span> / <span class="neg">${unitFmt(s.avgLossU)}</span>`, ratioViz(s.avgWinU, s.avgLossU, '', '')),
   ]);
   const H = Math.max(340, Math.round(((typeof innerHeight === 'number' ? innerHeight : 900) - 460) / .88)); // v3.70: charts fill the screen (≈620px plot on 1080p)
-  const equity = eqPanel(rows, H, 'mb16 ov-c', s, 'ov-eq');
-  const dcum = U('ov-dcum', u => { let a = 0; const d = dailySeries(rows).map(p => ({ x: p.x, y: (a += p.y) })); return panel(L('กำไรสุทธิสะสมรายวัน', 'Daily net cumulative P&L'), chartBox({ type: 'line', series: [{ name: L('สะสม', 'Cumulative'), data: d, area: true }], signed: true, unit: u }, H), '', 'ov-c', L(`${d.length} วันเทรด`, `${d.length} trading days`)); });
-  const daily = U('ov-daily', u => { const d = dailySeries(rows); return panel(L('กำไรสุทธิรายวัน', 'Net daily P&L'), chartBox({ type: 'bar', data: d, unit: u }, H), '', 'ov-c', `${L('วันกำไร', 'Winning days')} <span class="pos">${d.filter(x => x.y > EPS).length}</span> · ${L('วันขาดทุน', 'Losing days')} <span class="neg">${d.filter(x => x.y < -EPS).length}</span>`); });
-  const month = U('ov-month', u => { const mb = group(rows, 'month').map(g => ({ x: g.key, label: dimKeyLabel('month', g.key), y: g.s.total ?? 0, sub: `${g.s.n} ${L('เทรด', 'trades')} · ${L('อัตราชนะ', 'Win rate')} ${fmt(g.s.wr, 0)}%` })); return panel(L('ผลงานรายเดือน', 'Monthly performance'), chartBox({ type: 'bar', data: mb, unit: u, categorical: true, valueLabels: mb.length <= 18, valueFmt: v => compactUnit(v) }, H), '', 'ov-c', L(`${mb.length} เดือน · กำไร ${mb.filter(x => x.y > EPS).length} · ขาดทุน ${mb.filter(x => x.y < -EPS).length}`, `${mb.length} months · ${mb.filter(x => x.y > EPS).length} up · ${mb.filter(x => x.y < -EPS).length} down`)); });
+  const equity = eqPanel(rows, H + 56, 'mb16 ov-c', s, 'ov-eq'), H2 = 360; // v3.92: equity curve a bit taller, the other Overview charts shorter
+  const dcum = U('ov-dcum', u => { let a = 0; const d = dailySeries(rows).map(p => ({ x: p.x, y: (a += p.y) })); return panel(L('กำไรสุทธิสะสมรายวัน', 'Daily net cumulative P&L'), chartBox({ type: 'line', series: [{ name: L('สะสม', 'Cumulative'), data: d, area: true }], signed: true, unit: u }, H2), '', 'ov-c', L(`${d.length} วันเทรด`, `${d.length} trading days`)); });
+  const daily = U('ov-daily', u => { const d = dailySeries(rows); return panel(L('กำไรสุทธิรายวัน', 'Net daily P&L'), chartBox({ type: 'bar', data: d, unit: u }, H2), '', 'ov-c', `${L('วันกำไร', 'Winning days')} <span class="pos">${d.filter(x => x.y > EPS).length}</span> · ${L('วันขาดทุน', 'Losing days')} <span class="neg">${d.filter(x => x.y < -EPS).length}</span>`); });
+  const month = U('ov-month', u => { const mb = group(rows, 'month').map(g => ({ x: g.key, label: dimKeyLabel('month', g.key), y: g.s.total ?? 0, sub: `${g.s.n} ${L('เทรด', 'trades')} · ${L('อัตราชนะ', 'Win rate')} ${fmt(g.s.wr, 0)}%` })); return panel(L('ผลงานรายเดือน', 'Monthly performance'), chartBox({ type: 'bar', data: mb, unit: u, categorical: true, valueLabels: mb.length <= 18, valueFmt: v => compactUnit(v) }, H2), '', 'ov-c', L(`${mb.length} เดือน · กำไร ${mb.filter(x => x.y > EPS).length} · ขาดทุน ${mb.filter(x => x.y < -EPS).length}`, `${mb.length} months · ${mb.filter(x => x.y > EPS).length} up · ${mb.filter(x => x.y < -EPS).length} down`)); });
   /* v3.75 — Weekly performance next to Monthly (last 26 weeks) */
-  const week = U('ov-week', u => { const wb = group(rows, 'week').sort((a, b) => String(a.key).localeCompare(String(b.key))).slice(-26).map(g => ({ x: g.key, label: fmtDate(g.key, { year: false }), tip: dimKeyLabel('week', g.key), y: g.s.total ?? 0, sub: `${g.s.n} ${L('เทรด', 'trades')} · ${L('อัตราชนะ', 'Win rate')} ${fmt(g.s.wr, 0)}%` })); return panel(L('ผลงานรายสัปดาห์', 'Weekly performance'), chartBox({ type: 'bar', data: wb, unit: u, categorical: true, valueLabels: wb.length <= 14, valueFmt: v => compactUnit(v) }, H), '', 'ov-c', L(`${wb.length} สัปดาห์ · กำไร ${wb.filter(x => x.y > EPS).length} · ขาดทุน ${wb.filter(x => x.y < -EPS).length}`, `${wb.length} weeks · ${wb.filter(x => x.y > EPS).length} up · ${wb.filter(x => x.y < -EPS).length} down`)); });
+  const week = U('ov-week', u => { const wb = group(rows, 'week').sort((a, b) => String(a.key).localeCompare(String(b.key))).slice(-26).map(g => ({ x: g.key, label: fmtDate(g.key, { year: false }), tip: dimKeyLabel('week', g.key), y: g.s.total ?? 0, sub: `${g.s.n} ${L('เทรด', 'trades')} · ${L('อัตราชนะ', 'Win rate')} ${fmt(g.s.wr, 0)}%` })); return panel(L('ผลงานรายสัปดาห์', 'Weekly performance'), chartBox({ type: 'bar', data: wb, unit: u, categorical: true, valueLabels: wb.length <= 14, valueFmt: v => compactUnit(v) }, H2), '', 'ov-c', L(`${wb.length} สัปดาห์ · กำไร ${wb.filter(x => x.y > EPS).length} · ขาดทุน ${wb.filter(x => x.y < -EPS).length}`, `${wb.length} weeks · ${wb.filter(x => x.y > EPS).length} up · ${wb.filter(x => x.y < -EPS).length} down`)); });
   return kp + equity + `<div class="grid g2 mb16 ov-pair">${dcum}${daily}</div>` + `<div class="grid g2 ov-pair">${month}${week}</div>` + `<div class="mt16">${monthlyMatrix(rows)}</div>`; // v3.71: Monthly returns on Overview
 }
 /* ---------- v3.65 — Reports: every statistic, in five sections ---------- */
@@ -5769,7 +5787,7 @@ async function insCtApply() {
     for (const [k, raw] of Object.entries(d)) {
       if (k.startsWith('cent_')) { const kk = k.slice(5), v = String(raw).trim() === '' ? null : num(raw); if (v != null && !(v >= 0)) { bad(L('ค่าไม่ถูกต้อง', 'invalid value')); continue; } const c = { ...(i.cent || {}) }; if (v == null) delete c[kk]; else c[kk] = v; if (Object.keys(c).length) i.cent = c; else delete i.cent; if (kk === 'contractSize' && v != null && !(v > 0)) bad(L('ขนาดสัญญา (Cent) ต้องมากกว่า 0', 'Cent contract size must be > 0')); continue; }
       if (['symbol', 'name'].includes(k)) { i[k] = k === 'symbol' ? String(raw).trim().toUpperCase() : String(raw).trim(); continue; }
-      if (['assetClass', 'calcMode'].includes(k)) { i[k] = raw; continue; }
+      if (['assetClass', 'calcMode'].includes(k)) { i[k] = k === 'calcMode' ? calcModeNorm(raw) : raw; continue; }
       if (['baseCurrency', 'quoteCurrency'].includes(k)) { i[k] = String(raw || '').toUpperCase(); if (k === 'quoteCurrency') i.valueCurrency = i[k]; continue; }
       const v = String(raw).trim() === '' ? null : num(raw);
       if (['contractSize', 'quantityStep', 'minQuantity', 'maxQuantity', 'decimals'].includes(k) && v == null) { bad(L('ต้องกรอกทุกช่องของสเปกหลัก', 'required value is empty')); continue; }
@@ -5811,7 +5829,7 @@ async function saveInstrument() {
   if (state.instruments.some(x => x.symbol === sym && x.id !== editor.record.id)) return toast(L('มีสัญลักษณ์นี้แล้ว', 'Symbol already exists'), 'bad');
   const i = { ...editor.record, symbol: sym, name: d.name || instrumentName(sym, d.assetClass, d.baseCurrency, d.quoteCurrency), assetClass: d.assetClass, baseCurrency: String(d.baseCurrency || '').toUpperCase(), quoteCurrency: String(d.quoteCurrency || '').toUpperCase(), valueCurrency: String(d.valueCurrency || d.quoteCurrency || '').toUpperCase(), active: $('#f_ins_active') ? $('#f_ins_active').checked : !!d.active, updatedAt: now() };
   for (const k of ['decimals', 'contractSize', 'multiplier', 'tickSize', 'tickValue', 'pipSize', 'minQuantity', 'maxQuantity', 'quantityStep', 'commissionPerLot', 'spread', 'marginRate', 'initialMargin']) i[k] = num(d[k]);
-  i.calcMode = CALC_MODES.includes(d.calcMode) ? d.calcMode : defaultCalcMode(i.assetClass, sym); delete i.calculation;
+  i.calcMode = CALC_MODES.includes(calcModeNorm(d.calcMode)) ? calcModeNorm(d.calcMode) : defaultCalcMode(i.assetClass, sym); delete i.calculation;
   { const cent = {}; for (const k of CENT_SPEC_KEYS) { const v = num(d['cent_' + k]); if (finite(v) && v >= 0) cent[k] = v; } // v3.64 — cent-account spec (blank = same as Standard)
     if (i.calcMode !== 'Futures') delete cent.tickValue;
     if ('contractSize' in cent && !(cent.contractSize > 0)) return toast(L('ขนาดสัญญา (Standard Cent) ต้องมากกว่า 0', 'Contract size (Standard Cent) must be > 0'), 'bad');
@@ -8148,7 +8166,7 @@ const A = {
   'quick-rating': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.rating = t.rating === +el.dataset.value ? null : +el.dataset.value; t.updatedAt = now(); persist(); el.closest('.stars').outerHTML = stars(t.rating, 'quick-rating').replace('class="stars input"', `class="stars input" data-id="${id}"`); },
   'quick-emotion': async el => { const id = el.closest('[data-id]').dataset.id, t = get('trades', id); t.emotion = t.emotion === el.dataset.value ? '' : el.dataset.value; t.updatedAt = now(); persist(); el.closest('.emo').outerHTML = emotionPicker(t.emotion, 'quick-emotion').replace('<div class="emo', `<div data-id="${id}" class="one-row emo`); },
   'eq-mode': el => { ui.eqMode = el.dataset.value; savePrefs(); renderMain(); },
-  'eq-flow': el => { const k = el.dataset.k === 'dep' ? 'eqDep' : 'eqWd'; ui[k] = ui[k] === false; savePrefs(); renderMain(); },
+  'eq-flow': el => { const k = { dep: 'eqDep', wd: 'eqWd', cap: 'eqCap' }[el.dataset.k] || 'eqWd'; ui[k] = ui[k] === false; savePrefs(); renderMain(); },
   'cal-month': el => { let m = ui.month + +el.dataset.dir, y = ui.year; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } ui.month = m; ui.year = y; renderMain(); },
   'cal-today': () => { const t = new Date(); ui.month = t.getMonth(); ui.year = t.getFullYear(); renderMain(); },
   'cal-year': el => { ui.calYear = +el.dataset.y + +el.dataset.dir; renderMain(); },
