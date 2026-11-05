@@ -355,6 +355,52 @@ function balanceSeries(rows) {
   return [{ x: ui.from || (out[0]?.x ?? ''), y: open }, ...out];
 }
 
+/* v3.85 — equity curve with optional cash flows.
+   Shown equity = balance at the start of the range + trading P&L of the selected trades + other cash items (fees, dividends,
+   credits, adjustments) + deposits / withdrawals only when included. Return and drawdown are time-weighted on the real
+   balance, so money moving in or out never shows up as profit, loss or drawdown. */
+function equityModel(rows, dep = true, wd = true) {
+  const accounts = currentAccounts(); if (!accounts.length || new Set(accounts.map(a => a.currency)).size > 1) return null;
+  const ids = new Set(accounts.map(a => a.id)), sel = new Set(rows.map(t => t.id)), bal = Object.fromEntries(accounts.map(a => [a.id, +a.startingCapital || 0]));
+  const ev = [...state.trades.filter(t => t.status === 'Closed' && ids.has(t.accountId) && t.exitDateTime).map(t => ({ date: t.exitDateTime, acc: t.accountId, t })),
+    ...state.transactions.filter(x => ids.has(x.accountId) && x.dateTime).map(x => ({ date: x.dateTime, acc: x.accountId, x }))].sort((a, b) => cmpStr(String(a.date), String(b.date)));
+  const real = () => sum(Object.values(bal));
+  let start = real(), shown = start, cap = start, started = !ui.from, twr = 1, peak = 1, ddPct = 0, peakEq = start, troughDd = 0;
+  const S = { dep: 0, wd: 0, other: 0, pnl: 0, nTrades: 0, nDep: 0, nWd: 0 }, pts = [], capPts = [], marks = [];
+  const twrPts = [];
+  const push = (d, label, kind) => { pts.push({ x: d, y: shown, label }); capPts.push({ x: d, y: cap }); twrPts.push(twr); if (kind) marks.push({ i: pts.length - 1, kind }); peakEq = Math.max(peakEq, shown); troughDd = Math.min(troughDd, shown - peakEq); };
+  for (const e of ev) {
+    const d = dateKey(e.date); if (ui.to && d > ui.to) break;
+    const before = real();
+    let delta, kind = 'trade';
+    if (e.t) delta = calc(e.t).net || 0;
+    else { const x = e.x; delta = x.type === 'Reset' ? (+x.amount || 0) - bal[e.acc] : x.type === 'Adjustment' ? (+x.amount || 0) : txnValue(x); kind = x.type === 'Deposit' || (x.type === 'Reset' && delta > 0) ? 'dep' : x.type === 'Withdrawal' || (x.type === 'Reset' && delta < 0) ? 'wd' : 'other'; }
+    bal[e.acc] += delta;
+    if (!started) { if (d < ui.from) { start = shown = cap = peakEq = real(); continue; } started = true; pts.push({ x: ui.from, y: start, label: L('ยอดเริ่มต้นช่วงนี้', 'Start of period') }); capPts.push({ x: ui.from, y: start }); twrPts.push(twr); }
+    if (kind === 'trade') {
+      if (!sel.has(e.t.id)) continue; // filtered out: still part of the real balance, not of this curve
+      if (before > 0) { twr *= 1 + delta / before; peak = Math.max(peak, twr); ddPct = Math.min(ddPct, twr / peak - 1); }
+      shown += delta; S.pnl += delta; S.nTrades++; push(d, nameOf('instruments', e.t.instrumentId, 'symbol'));
+    } else if (kind === 'other') { shown += delta; S.other += delta; push(d, txnLabel(e.x) + ' ' + money(delta, accounts[0].currency, true)); }
+    else {
+      const inc = kind === 'dep' ? dep : wd; if (kind === 'dep') { S.dep += delta; S.nDep++; } else { S.wd += delta; S.nWd++; }
+      if (!inc) continue; shown += delta; cap += delta; push(d, txnLabel(e.x) + ' ' + money(delta, accounts[0].currency, true), kind);
+    }
+  }
+  if (!pts.length) { pts.push({ x: ui.from || dateKey(new Date()), y: start }); capPts.push({ x: pts[0].x, y: start }); twrPts.push(1); }
+  else if (pts[0].label !== L('ยอดเริ่มต้นช่วงนี้', 'Start of period')) { pts.unshift({ x: pts[0].x, y: start, label: L('ยอดเริ่มต้น', 'Starting balance') }); capPts.unshift({ x: pts[0].x, y: start }); twrPts.unshift(1); marks.forEach(m => m.i++); }
+  return { cur: accounts[0].currency, pts, capPts, marks, ddt: ddTrack(twrPts, true, 1), start, end: shown, cap, twr: twr - 1, ddPct, ddAmt: troughDd, peakEq, ...S };
+}
+/* v3.86 — drawdown track for a value series: per-point drawdown, the max drawdown (peak index → trough index) and recovery */
+function ddTrack(vals, pct, base) {
+  let peak = base ?? vals[0], pi = 0, min = 0, i0 = -1, i1 = -1, pk0 = 0;
+  const dd = vals.map((v, i) => { if (v >= peak - 1e-12) { peak = v; pi = i; } const d = pct ? (peak > 0 ? v / peak - 1 : 0) : v - peak; if (d < min - 1e-12) { min = d; i0 = pi; i1 = i; pk0 = peak; } return d; });
+  let rec = -1; if (i1 >= 0) for (let k = i1 + 1; k < vals.length; k++) if (vals[k] >= pk0 - 1e-12) { rec = k; break; }
+  return { dd, min, i0, i1, rec };
+}
+const dayDiff = (a, b) => Math.round((Date.parse(String(b).slice(0, 10)) - Date.parse(String(a).slice(0, 10))) / 864e5);
+const txnLabel = x => ({ Deposit: L('ฝากเงิน', 'Deposit'), Withdrawal: L('ถอนเงิน', 'Withdrawal'), Fee: L('ค่าธรรมเนียม', 'Fee'), Dividend: L('ปันผล', 'Dividend'), Credit: L('เครดิต', 'Credit'), Adjustment: L('ปรับยอด', 'Adjustment'), Reset: L('รีเซ็ตยอด', 'Reset') })[x.type] || x.type;
+
 /* ---------- discipline & rules ---------- */
 function dayDiscipline(dayKey, accountId = ui.account) {
   const R = state.settings.rules || {};

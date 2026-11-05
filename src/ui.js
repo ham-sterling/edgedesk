@@ -31,7 +31,7 @@ function stars(n, action = '', name = '') { return `<span class="stars ${action 
 const FLAG = { USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp', AUD: 'au', CAD: 'ca', CHF: 'ch', NZD: 'nz', HKD: 'hk', CNY: 'cn', SGD: 'sg', THB: 'th' };
 const ASSET_LIB = { ADA: 'crypto-ada', BNB: 'crypto-bnb', BTC: 'crypto-btc', DOGE: 'crypto-dog', ETH: 'crypto-eth', SOL: 'crypto-sol', TRX: 'crypto-trx', USDC: 'crypto-usdc', USDT: 'crypto-usdt', XRP: 'crypto-xrp', XAU: 'cfd-xau', XAG: 'cfd-xag', CL: 'cfd-cl', NG: 'cfd-ng', META: 'stock-meta', GOOGL: 'stock-googl', NDVA: 'stock-ndva', NVDA: 'stock-ndva', TSLA: 'stock-tsla', BABA: 'stock-baba', APPL: 'stock-appl', AAPL: 'stock-appl', MSFT: 'stock-msft', AMD: 'stock-amd', AMZN: 'stock-amzn' };
 const INDEX_FLAG = { AU200: 'au', DE40: 'de', DE50: 'de', GER40: 'de', EU50: 'eu', FR40: 'fr', IT40: 'it', JP225: 'jp', HK50: 'hk', UK100: 'gb', US30: 'us', US500: 'us', US2000: 'us', USTECH: 'us', NAS100: 'us', SPX500: 'us' };
-function libSlot(code) { const uri = typeof ICON_LIBRARY !== 'undefined' && ICON_LIBRARY[code]; return uri ? `<img src="${uri}" alt="" loading="lazy">` : ''; }
+function libSlot(code) { const uri = typeof ICON_LIBRARY !== 'undefined' && ICON_LIBRARY[code]; return uri ? `<img src="${uri}" alt="" loading="lazy" data-lib="${code}">` : ''; }
 function legacySlot(slot) { const s = String(slot?.src || ''); if (s.startsWith('lib:')) return libSlot(s.slice(4)); if (s.startsWith('data:image/')) return `<img src="${s}" alt="">`; const txt = s.startsWith('text:') ? s.slice(5) : s; return txt ? `<b>${esc(txt)}</b>` : icon('circle-dashed'); }
 function insIcon(ins, size = '') {
   if (!ins) return `<span class="ins-ic ${size}"><span class="disc"><b>?</b></span></span>`;
@@ -46,6 +46,7 @@ function insIcon(ins, size = '') {
   else if (ins.assetClass === 'Indices') { a = libSlot(INDEX_FLAG[sym] || FLAG[quote]); }
   else if (ins.assetClass === 'Stocks') { a = libSlot(ASSET_LIB[sym]); }
   if (!a) a = sym ? `<b>${esc(sym.slice(0, 2))}</b>` : icon('circle-dashed');
+  if (ins.assetClass !== 'Forex') b = ''; // v3.90: only Forex pairs show two discs; everything else uses one icon
   return `<span class="ins-ic ${size} ${b ? 'pair' : ''}"><span class="disc">${a}</span>${b ? `<span class="disc d2">${b}</span>` : ''}</span>`;
 }
 function symbolCell(id, sub = '') { const i = get('instruments', id); return `<span class="sym">${insIcon(i)}<span><strong>${esc(i?.symbol || '—')}</strong>${sub ? `<small>${sub}</small>` : ''}</span></span>`; }

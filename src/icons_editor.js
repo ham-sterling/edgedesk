@@ -30,12 +30,13 @@ function autoSlots(ins) {
   else if (/OIL|WTI|BRENT/.test(sym)) { a = 'cfd-cl'; b = 'us'; }
   else if (ins.assetClass === 'Indices') a = INDEX_FLAG[sym] || FLAG[quote];
   else if (ins.assetClass === 'Stocks') a = ASSET_LIB[sym];
+  if (ins.assetClass !== 'Forex') b = ''; // v3.90: one icon for everything but Forex
   return { mode: b ? 'Pair' : 'Single', first: defaultSlot(a ? 'lib:' + a : (sym ? 'text:' + sym.slice(0, 2) : '')), second: defaultSlot(b ? 'lib:' + b : '') };
 }
 function slotHTML(slot) {
   const s = String(slot?.src || ''), z = Number(slot?.zoom || 1), x = Number(slot?.x ?? 50), y = Number(slot?.y ?? 50);
   const st = `object-position:${x}% ${y}%;transform:scale(${z});transform-origin:${x}% ${y}%`;
-  if (s.startsWith('lib:')) { const uri = typeof ICON_LIBRARY !== 'undefined' && ICON_LIBRARY[s.slice(4)]; if (uri) return `<img src="${uri}" alt="" style="${st}">`; }
+  if (s.startsWith('lib:')) { const uri = typeof ICON_LIBRARY !== 'undefined' && ICON_LIBRARY[s.slice(4)]; if (uri) return `<img src="${uri}" alt="" style="${st}" data-lib="${esc(s.slice(4))}">`; }
   if (s.startsWith('data:image/')) return `<img src="${s}" alt="" style="${st}">`;
   const txt = s.startsWith('text:') ? s.slice(5) : s;
   if (!txt) return icon('circle-dashed');
@@ -99,7 +100,7 @@ async function saveIcon() {
 function readInsDraftWithIcon() { return { ...readInsDraft(), iconConfig: editor.record.iconConfig, iconMode: editor.record.iconMode }; }
 const ICON_ACTIONS = {
   'ic-open': el => openIconEditor(el.dataset.id),
-  'ic-mode': el => { const m = el.dataset.value; if (m !== 'Auto' && iconDraft.mode === 'Auto') { const a = autoSlots(iconDraft.ins); iconDraft.first = { ...a.first }; iconDraft.second = { ...a.second }; } iconDraft.mode = m; if (m === 'Single') iconDraft.active = 'first'; drawIconEditor(); },
+  'ic-mode': el => { const m = el.dataset.value; if (m !== 'Auto' && iconDraft.mode === 'Auto') { const a = autoSlots(iconDraft.ins); iconDraft.first = { ...a.first }; iconDraft.second = { ...a.second }; } iconDraft.mode = m; if (m === 'Pair' && !iconDraft.second?.src) { const q = String(iconDraft.ins.quoteCurrency || '').toUpperCase(); iconDraft.second = defaultSlot('lib:' + (FLAG[q] || ASSET_LIB[q] || 'us')); } if (m === 'Single') iconDraft.active = 'first'; drawIconEditor(); }, // v3.90: Pair starts with the quote currency as the second icon
   'ic-slot': el => { iconDraft.active = el.dataset.value; const s = String(iconDraft[iconDraft.active].src); if (s.startsWith('lib:')) iconDraft.cat = iconCat(s.slice(4)); drawIconEditor(); },
   'ic-cat': el => { iconDraft.cat = el.dataset.value; iconDraft.q = ''; drawIconEditor(); },
   'ic-pick': el => { Object.assign(iconDraft[iconDraft.active], { src: el.dataset.src, zoom: 1, x: 50, y: 50 }); drawIconEditor(); },

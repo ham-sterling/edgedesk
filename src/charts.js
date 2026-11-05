@@ -5,7 +5,7 @@ const chartSpecs = new Map(); let chartSeq = 0, chartRO = null;
 function chartBox(spec, height = 240) { const id = 'c' + (++chartSeq), h = Math.round((spec.height || height) * .88), u0 = ui.unit;
   // formatters run later (drawing, tooltips) — pin them to the unit the chart was built with
   const pinned = Object.fromEntries(Object.entries(spec).map(([k, v]) => [k, typeof v === 'function' ? (...a) => { const s = ui.unit; ui.unit = u0; try { return v(...a); } finally { ui.unit = s; } } : v]));
-  chartSpecs.set(id, { ...pinned, unit: spec.unit ?? u0, height: h }); return `<div class="chart" data-chart="${id}" style="height:${h}px"></div>`; }
+  chartSpecs.set(id, { ...pinned, unit: spec.unit ?? u0, height: h }); return spec.fill ? `<div class="chart fill" data-chart="${id}"></div>` : `<div class="chart" data-chart="${id}" style="height:${h}px"></div>`; } // v3.88: fill = take the card's free height
 function niceTicks(min, max, count = 5) {
   if (!finite(min) || !finite(max)) return [0]; if (min === max) { const p = Math.abs(min) || 1; min -= p * .5; max += p * .5; }
   const span = max - min, step0 = span / Math.max(1, count), mag = 10 ** Math.floor(Math.log10(step0)), n = step0 / mag;
@@ -17,12 +17,13 @@ function niceTicks(min, max, count = 5) {
 function axisFmt(u) { return v => { if (u === 'P&L') return (v < 0 ? '−' : '') + currencySymbol(baseCurrency()) + compact(Math.abs(v)); if (u === 'R') return fmt(v, Math.abs(v) < 10 ? 1 : 0) + 'R'; if (u === '%') return fmt(v, 1) + '%'; if (u === 'count') return fmt(v, 0); if (u === 'pct') return fmt(v, 0) + '%'; return compact(v); }; }
 function xLabel(x) { if (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)) return fmtDate(x, { year: false }); if (typeof x === 'string' && /^\d{4}-\d{2}$/.test(x)) return monthName(+x.slice(5) - 1) + ' ' + x.slice(2, 4); return String(x); }
 function mountCharts(root = document) {
-  chartRO ??= new ResizeObserver(entries => { for (const e of entries) { const el = e.target; const w = Math.round(e.contentRect.width); if (w && Math.abs(w - (el._w || 0)) > 2) drawChart(el); } });
+  chartRO ??= new ResizeObserver(entries => { for (const e of entries) { const el = e.target; const w = Math.round(e.contentRect.width), hh = Math.round(e.contentRect.height); if (w && (Math.abs(w - (el._w || 0)) > 2 || (el.classList.contains('fill') && Math.abs(hh - (el._h || 0)) > 2))) drawChart(el); } });
   $$('[data-chart]', root).forEach(el => { if (!el._mounted) { el._mounted = true; chartRO.observe(el); } drawChart(el); });
+  if (typeof dashSync === 'function') dashSync();
 }
 function drawChart(el) {
   const spec = chartSpecs.get(el.dataset.chart); if (!spec) return;
-  const W = Math.max(120, el.clientWidth), H = spec.height; el._w = W;
+  const W = Math.max(120, el.clientWidth), H = el.classList.contains('fill') ? Math.max(120, el.clientHeight) : spec.height; el._w = W; el._h = H;
   try { const fn = { line: drawLine, bar: drawBar, hbar: drawHBar, scatter: drawScatter, band: drawBand, heat: drawHeatStrip }[spec.type]; el.innerHTML = fn ? fn(spec, W, H, el) : ''; }
   catch (e) { console.error(e); el.innerHTML = `<div class="chart-empty">${L('แสดงกราฟไม่ได้', 'Chart unavailable')}</div>`; }
 }
@@ -44,15 +45,26 @@ const yTitleSVG = (t, H, top, bottom) => t ? `<text class="ytitle" transform="tr
 /* line / area — v3.69: Element chart style: tight y scale, framed axes with ticks, x & y guides, point markers, flat translucent fill */
 function drawLine(spec, W, H, el) {
   const series = spec.series.filter(s => s.data?.length); if (!series.length) return emptyChart(spec.empty);
-  if (series.length > 1) { let rows = 1, x = 0; for (const sr of series) { const w = String(sr.name).length * 7 + 30; if (x + w > W && x > 0) { rows++; x = 0; } x += w; } H = Math.max(140, H - rows * 24); } // keep the legend inside the box
+  if (!spec.noLegend && (series.length > 1 || spec.dd?.vals?.length)) { let rows = 1, x = 0; for (const sr of [...series, ...(spec.dd?.vals?.length ? [{ name: spec.dd.name || 'Drawdown' }] : []), ...(spec.legendExtra ? [{ name: '            ' }] : [])]) { const w = String(sr.name).length * 7 + 30; if (x + w > W && x > 0) { rows++; x = 0; } x += w; } H = Math.max(140, H - rows * 24); } // keep the legend inside the box
   const f = axisFmt(spec.unit), all = series.flatMap(s => s.data.map(p => p.y)).filter(finite);
   const yt = spec.yTitle === false || W < 360 ? '' : (spec.yTitle || axisTitle(spec.unit));
-  const top = 14, bottom = 28, { y, ticks } = yScaleFor(all, H, top, bottom, spec.zero === true), left = leftPad(ticks, f) + 4 + (yt ? 16 : 0), right = 14, yB = H - bottom;
+  const DD = spec.dd && spec.dd.vals?.length ? spec.dd : null; // v3.86: drawdown on a second axis (right), hanging from the top
+  const top = 14, bottom = 28, { y, ticks } = yScaleFor(all, H, top, bottom, spec.zero === true), left = leftPad(ticks, f) + 4 + (yt ? 16 : 0), right = DD && W >= 360 ? 62 : DD ? 40 : 14, yB = H - bottom;
   const n = Math.max(...series.map(s => s.data.length)), X = i => left + (n === 1 ? (W - left - right) / 2 : i / (n - 1) * (W - left - right));
   const nx = Math.max(2, Math.floor((W - left) / 90)), xs = series[0].data.map(p => p.x), xi = xs.length <= 1 ? [0] : [...new Set(Array.from({ length: Math.min(nx, xs.length) }, (_, k, a) => Math.round(k * (xs.length - 1) / Math.max(1, Math.min(nx, xs.length) - 1))))];
   let svg = ticks.map(t => `<line class="grid${Math.abs(t) < EPS ? ' zero' : ''}" x1="${left}" x2="${W - right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><line class="axis" x1="${left - 5}" x2="${left}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><text class="ylab" x="${left - 9}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(f(t))}</text>`).join('');
   svg += xi.map(i => `<line class="vgrid" x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${top}" y2="${yB}"/><line class="axis" x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${yB}" y2="${yB + 4}"/>`).join('') + yTitleSVG(yt, H, top, bottom);
   const z = clamp(y(0), top, yB), gid = 'g' + el.dataset.chart, dots = n <= 60;
+  let y2 = null;
+  if (DD) {
+    const mn = Math.min(0, ...DD.vals.filter(finite)), t2 = niceTicks(mn < 0 ? mn / (DD.share || .4) : -1, 0, 4), lo = Math.min(...t2) || -1; y2 = v => top + (v / lo) * (yB - top);
+    const f2 = DD.axisFmt || (v => fmt(v, 0) + '%');
+    svg += t2.map(t => `<line class="axis" x1="${W - right}" x2="${W - right + 5}" y1="${y2(t).toFixed(1)}" y2="${y2(t).toFixed(1)}"/><text class="ylab y2lab" x="${W - right + 9}" y="${(y2(t) + 3.5).toFixed(1)}" text-anchor="start">${esc(f2(t))}</text>`).join('') + `<line class="axis" x1="${W - right}" x2="${W - right}" y1="${top}" y2="${yB}"/>`;
+    if (W >= 360 && DD.title) svg += `<text class="ytitle" transform="translate(${W - 10} ${((top + yB) / 2).toFixed(1)}) rotate(90)" text-anchor="middle">${esc(DD.title)}</text>`;
+    const b = DD.band; if (b && b.i0 >= 0 && b.i1 > b.i0) { const x0 = X(b.i0), x1 = X(b.i1); svg += `<rect class="dd-band" x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${yB - top}"/>`; if (b.rec > b.i1) svg += `<rect class="dd-band rec" x="${x1.toFixed(1)}" y="${top}" width="${(X(b.rec) - x1).toFixed(1)}" height="${yB - top}"/>`; }
+    const dp = DD.vals.map((v, i) => [X(i), y2(finite(v) ? v : 0)]);
+    svg += `<path class="dd-area" d="M${X(0).toFixed(1)},${y2(0).toFixed(1)}${dp.map(p => 'L' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}L${X(n - 1).toFixed(1)},${y2(0).toFixed(1)}Z"/><path class="dd-ln" d="${dp.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')}"/>`;
+  }
   series.forEach((s, si) => {
     const pts = s.data.map((p, i) => [X(i), y(p.y)]), d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('');
     const col = s.color || 'var(--accent)';
@@ -69,11 +81,14 @@ function drawLine(spec, W, H, el) {
     }
     if (!dots && s.endDot !== false && pts.length) { const p = pts[pts.length - 1]; svg += `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" class="enddot" fill="${spec.signed ? (s.data[s.data.length - 1].y >= 0 ? 'var(--pos)' : 'var(--neg)') : col}"/>`; }
   });
+  if (spec.marks?.length) { const s0 = series[0]; svg += spec.marks.map(m => { const p = s0.data[m.i]; if (!p) return ''; const cx = X(m.i), cy = y(p.y), up = m.kind === 'dep'; return `<path class="eq-mk ${up ? 'dep' : 'wd'}" d="${up ? `M${cx.toFixed(1)},${(cy - 12).toFixed(1)}l5.5,8h-11z` : `M${cx.toFixed(1)},${(cy + 12).toFixed(1)}l5.5,-8h-11z`}"/>`; }).join(''); } // v3.85: deposit ▲ / withdrawal ▼ markers
   svg += `<line class="axis" x1="${left}" x2="${left}" y1="${top}" y2="${yB}"/><line class="axis" x1="${left}" x2="${W - right}" y1="${yB}" y2="${yB}"/>`;
   svg += xi.map((i, k) => `<text class="xlab" x="${X(i).toFixed(1)}" y="${yB + 17}" text-anchor="${xi.length > 1 && k === 0 ? 'start' : xi.length > 1 && k === xi.length - 1 ? 'end' : 'middle'}">${esc(xLabel(xs[i]))}</text>`).join('');
+  if (DD?.band?.lines && DD.band.i1 > DD.band.i0 && W >= 360) { const b = DD.band, ls = b.lines, cw = 6.1, bw = Math.max(...ls.map(t => t.length)) * cw + 20, bh = ls.length * 15 + 10, tx = X(b.i1), ty = y(series[0].data[b.i1].y), onR = tx + 14 + bw < W - right, bx = onR ? tx + 12 : Math.max(left + 4, tx - 12 - bw), by = clamp(ty + 10, top + 4, yB - bh - 4);
+    svg += `<g class="dd-note"><line x1="${tx.toFixed(1)}" y1="${ty.toFixed(1)}" x2="${(onR ? bx : bx + bw).toFixed(1)}" y2="${(by + 12).toFixed(1)}"/><rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="7"/>${ls.map((t, k) => `<text x="${(bx + 10).toFixed(1)}" y="${(by + 19 + k * 15).toFixed(1)}" class="${k ? '' : 'h'}">${esc(t)}</text>`).join('')}</g>`; }
   svg += `<line class="xhair" x1="0" x2="0" y1="${top}" y2="${yB}" style="display:none"/>` + series.map((s, i) => `<circle class="hdot" data-s="${i}" r="4.5" style="display:none" fill="${s.color || 'var(--accent)'}"/>`).join('');
-  el._layout = { kind: 'line', X, y, n, left, right, W, series, f: spec.tipFmt || (v => unitFmt(v, spec.unit === 'count' ? 'x' : spec.unit)), top, bottom, H };
-  const legend = series.length > 1 ? `<div class="legend">${series.map(s => `<span><i style="background:${s.color || 'var(--accent)'}"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
+  el._layout = { kind: 'line', X, y, n, left, right, W, series, f: spec.tipFmt || (v => unitFmt(v, spec.unit === 'count' ? 'x' : spec.unit)), top, bottom, H, dd: DD };
+  const legend = !spec.noLegend && (series.length > 1 || DD) ? `<div class="legend">${series.map(s => `<span><i class="${s.dash ? 'dash' : ''}" style="background:${s.color || (spec.signed ? 'var(--pos)' : 'var(--accent)')}"></i>${esc(s.name)}</span>`).join('')}${DD ? `<span><i class="dd-sw"></i>${esc(DD.name || 'Drawdown')}</span>` : ''}${spec.legendExtra || ''}</div>` : '';
   return `${legend}<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.label || L('กราฟ', 'Chart'))}">${svg}</svg>`;
 }
 /* v3.68 — vertical bars on a framed scale: y axis with tick marks, x axis line, faint column guides, wide square bars */
@@ -163,7 +178,8 @@ function onChartMove(e) {
     const xh = svg.querySelector('.xhair'); xh.style.display = ''; xh.setAttribute('x1', x); xh.setAttribute('x2', x);
     if (Lo.kind === 'band') { const p = Lo.b[i]; chartTip(`<b>${L('ไม้ที่', 'Trade')} ${p.x}</b><div>P95 <strong>${money(p.p95)}</strong></div><div>P50 <strong>${money(p.p50)}</strong></div><div>P5 <strong>${money(p.p5)}</strong></div>`, e.clientX, e.clientY); return; }
     let head = '', rowsH = '';
-    Lo.series.forEach((s, si) => { const p = s.data[i], dot = svg.querySelector(`.hdot[data-s="${si}"]`); if (!p) { dot.style.display = 'none'; return; } dot.style.display = ''; dot.setAttribute('cx', x); dot.setAttribute('cy', Lo.y(p.y)); head ||= p.tip || xLabel(p.x) + (/^\d{4}-\d{2}-\d{2}$/.test(p.x) ? ' ' + String(p.x).slice(0, 4) : ''); rowsH += `<div>${Lo.series.length > 1 ? `<i style="background:${s.color}"></i>${esc(s.name)} ` : ''}<strong class="${tone(p.y)}">${esc(Lo.f(p.y))}</strong>${p.label ? ` <span class="dim">· ${esc(p.label)}</span>` : ''}</div>`; });
+    Lo.series.forEach((s, si) => { const p = s.data[i], dot = svg.querySelector(`.hdot[data-s="${si}"]`); if (!p) { dot.style.display = 'none'; return; } dot.style.display = ''; dot.setAttribute('cx', x); dot.setAttribute('cy', Lo.y(p.y)); head ||= p.tip || xLabel(p.x) + (/^\d{4}-\d{2}-\d{2}$/.test(p.x) ? ' ' + String(p.x).slice(0, 4) : ''); rowsH += `<div>${Lo.series.length > 1 || Lo.dd ? `<i style="background:${s.color}"></i>${esc(s.name)} ` : ''}<strong class="${tone(p.y)}">${esc(Lo.f(p.y))}</strong>${p.label ? ` <span class="dim">· ${esc(p.label)}</span>` : ''}</div>`; });
+    if (Lo.dd && finite(Lo.dd.vals[i])) rowsH += `<div><i class="dd-sw"></i>${esc(Lo.dd.name || 'Drawdown')} <strong class="${Lo.dd.vals[i] < -1e-12 ? 'neg' : ''}">${esc((Lo.dd.tipFmt || (v => fmt(v, 2) + '%'))(Lo.dd.vals[i]))}</strong></div>`;
     chartTip(`<b>${esc(head)}</b>${rowsH}`, e.clientX, e.clientY);
   } else if (Lo.kind === 'bar') {
     const i = Math.floor((mx - Lo.left) / Lo.bw); const d = Lo.data[i]; const hb = svg.querySelector('.hband');

@@ -3,7 +3,7 @@
    Tickmeta (formerly EdgeDesk) — Trading Journal · storage keys keep the edgedesk-* names so existing data loads
    CORE: utilities · i18n · time · state · storage · migration
    ============================================================ */
-const APP_NAME = 'Tickmeta', APP_VERSION = '3.84.0', SCHEMA_VERSION = 3;
+const APP_NAME = 'Tickmeta', APP_VERSION = '3.90.0', SCHEMA_VERSION = 3;
 const DB_NAME = 'edgedesk-v3', UI_KEY = 'edgedesk-v3-ui', EPS = 1e-8;
 
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -220,7 +220,7 @@ function setupSync() {
 }
 function setSaveLabel(t, bad = false) { const el = $('#save-state'); if (el) { el.textContent = t; el.classList.toggle('neg', bad); } }
 function savePrefs() {
-  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ account: ui.account, unit: ui.unit, preset: ui.preset, from: ui.from, to: ui.to, pageSize: ui.pageSize, columns: ui.columns, sortKey: ui.sortKey, sortDir: ui.sortDir, dimension: ui.dimension, breakdownMetric: ui.breakdownMetric, chartUnits: ui.chartUnits, insTab: ui.insTab, insTagCat: ui.insTagCat, crossX: ui.crossX, crossY: ui.crossY, crossMetric: ui.crossMetric, crossHideSmall: ui.crossHideSmall, bdHideSmall: ui.bdHideSmall, playbookView: ui.playbookView, insView: ui.insView, insSpec: ui.insSpec, eqMode: ui.eqMode, eqDep: ui.eqDep, eqWd: ui.eqWd, planView: ui.planView, notebookFolder: ui.notebookFolder, notebookId: ui.notebookId, mc: ui.mc, sidebarCollapsed: ui.sidebarCollapsed, hideTopStats: !!ui.hideTopStats })); } catch { }
 }
 function loadPrefs() {
   try { Object.assign(ui, JSON.parse(localStorage.getItem(UI_KEY) || '{}')); } catch { }

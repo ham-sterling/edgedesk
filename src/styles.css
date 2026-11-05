@@ -1916,3 +1916,79 @@ input[type=date]::-webkit-datetime-edit,input[type=datetime-local]::-webkit-date
   .pb-tbl table thead th{border-top:1px solid var(--border)}
   .pb-tbl .foot{padding-left:32px;padding-right:32px}
 }
+
+/* v3.85 — Equity curve: Include deposits / withdrawals, flow markers, results strip */
+.eq-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 10px}
+.eq-inc{font-size:12px;color:var(--dim);margin-right:2px}
+.eq-flow{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px 0 8px;border-radius:999px;border:1px solid var(--border2);background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:550;cursor:pointer}
+.eq-flow em{font-style:normal;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.eq-flow:hover{border-color:var(--text);color:var(--text)}
+.eq-flow.on{color:var(--text);background:var(--surface2)}
+.eq-cb{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--border2);display:grid;place-items:center;flex:none}
+.eq-flow.on .eq-cb{background:var(--accent);border-color:var(--accent);color:#fff}
+.eq-cb svg{width:11px;height:11px;stroke-width:3}
+.eq-tri{display:inline-block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;flex:none}
+.eq-tri.dep{border-bottom:8px solid var(--pos)}.eq-tri.wd{border-top:8px solid var(--warn)}
+.legend .eq-tri{margin-right:6px;vertical-align:1px}
+.legend i.dash{background:repeating-linear-gradient(90deg,var(--muted) 0 4px,transparent 4px 7px)!important;height:2px}
+.eq-mk{stroke:var(--surface);stroke-width:1.5}.eq-mk.dep{fill:var(--pos)}.eq-mk.wd{fill:var(--warn)}
+.eq-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+.eq-st{display:flex;flex-direction:column;gap:3px;padding:0 12px;min-width:0}
+.eq-st+.eq-st{border-left:1px solid var(--border)}
+.eq-st:first-child{padding-left:0}
+.eq-st .l{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eq-st b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.eq-st small{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eq-panel>.panel-b{container-type:inline-size}
+@container (max-width:760px){.eq-stats{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}.eq-st:nth-child(4){border-left:0;padding-left:0}}
+@container (max-width:520px){.eq-stats{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:8px;padding-top:10px}.eq-st:nth-child(1),.eq-st:nth-child(4){display:none}.eq-st{padding:0 8px}.eq-st:nth-child(2){border-left:0;padding-left:0}.eq-st:nth-child(5){border-left:1px solid var(--border);padding-left:8px}.eq-st b{font-size:13.5px}.eq-st small{display:none}.eq-st .l{font-size:11px}.eq-bar{margin-bottom:4px}.eq-inc{display:none}}
+.legend i.dash{display:inline-block;width:14px;vertical-align:middle;margin-bottom:2px}
+.eq-st .ls{display:none}
+@container (max-width:520px){.eq-st .lf{display:none}.eq-st .ls{display:inline}}
+
+/* v3.86 — Equity & Drawdown on two axes */
+.dash-top>.dash-eqdd{grid-column:span 2}
+@media (max-width:640px){.dash-top>.dash-eqdd{grid-column:auto}}
+.dd-area{fill:var(--neg);fill-opacity:.16}
+.dd-ln{fill:none;stroke:var(--neg);stroke-opacity:.55;stroke-width:1.2}
+.dd-band{fill:var(--neg);fill-opacity:.07}.dd-band.rec{fill:var(--pos);fill-opacity:.05}
+.y2lab{fill:var(--neg)!important;opacity:.8}
+.dd-note line{stroke:var(--dim);stroke-width:1}
+.dd-note rect{fill:var(--surface2);stroke:var(--border2);stroke-width:1}
+.dd-note text{font-size:11px;fill:var(--muted)}.dd-note text.h{fill:var(--neg);font-weight:700}
+i.dd-sw{display:inline-block;width:12px;height:9px;border-radius:2px;background:color-mix(in srgb,var(--neg) 35%,transparent);border-top:1.5px solid var(--neg);margin-right:6px;vertical-align:0}
+.eq-stats.c4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@container (max-width:760px){.eq-stats.c4{grid-template-columns:repeat(2,minmax(0,1fr))}.eq-stats.c4 .eq-st:nth-child(3){border-left:0;padding-left:0}.eq-stats.c4 .eq-st:nth-child(4){display:flex}}
+@container (max-width:900px){.eq-stats:not(.c4) .eq-st .lf{display:none}.eq-stats:not(.c4) .eq-st .ls{display:inline}}
+
+/* v3.87 — Dashboard: Equity & Drawdown full width; Daily P&L above Recent trades; one calendar scale for the whole app */
+.dash-top>.dash-eqdd{grid-column:auto}
+.dash-left{display:flex;flex-direction:column;gap:16px;min-width:0}
+.dash-left>.panel{flex:none}.dash-left>.panel:last-child{flex:1}
+.dash-daily>.panel-b{padding:4px 10px 6px!important}
+.dash-daily>.panel-h{padding-bottom:4px}
+.dash-mid>.dash-left .tl-row{padding:7px 2px}
+.cal .day,.cal.mini .day,.jm-cal .cal.mini .day{aspect-ratio:4/3!important;min-height:0!important;overflow:hidden}
+/* v3.88 — Daily P&L and Recent trades share the left column equally */
+.dash-left>.panel,.dash-left>.panel:last-child{flex:1 1 0;min-height:0}
+.dash-left>.panel>.panel-b{min-height:0;overflow:hidden}
+.dash-left>.panel{display:flex;flex-direction:column}
+.dash-left>.panel>.panel-b{flex:1;display:flex;flex-direction:column}
+.chart.fill{position:relative;flex:1;min-height:150px}.chart.fill>svg{position:absolute;left:0;top:0}
+.dash-left .tl{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
+
+/* v3.89 — Equity & Drawdown header: legend centred, Include next to the switch; ETH on a theme-coloured disc; even dashboard rows */
+.eq-panel>.panel-h{position:relative}
+.eq-panel .panel-tools{gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.eq-legend{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:16px;align-items:center;font-size:12px;color:var(--muted);white-space:nowrap;pointer-events:none}
+.eq-lg{display:inline-flex;align-items:center;gap:6px}.eq-lg i{margin:0!important}
+.eq-lg i.sw{width:12px;height:3px;border-radius:2px;background:var(--accent)}.eq-lg i.sw.pos{background:var(--pos)}
+.eq-lg i.sw.cap{background:repeating-linear-gradient(90deg,var(--muted) 0 4px,transparent 4px 7px);height:2px}
+.eq-panel .eq-bar{margin:0;gap:6px}
+.eq-panel .eq-flow{height:34px}
+@media (max-width:1180px){.eq-legend{position:static;transform:none;order:3;width:100%;justify-content:center;flex-wrap:wrap;margin-top:4px}.eq-panel>.panel-h{flex-wrap:wrap}}
+.dash-bot>.panel.dash-fit{height:var(--dash-ch,auto);display:flex;flex-direction:column;min-height:0}
+.dash-bot>.panel.dash-fit>.panel-b{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
+.eq-panel>.panel-h>.panel-tools{flex:1;min-width:0}
+.eq-panel .eq-legend{position:static;transform:none;margin:0 auto;padding:0 12px}
+@media (max-width:1180px){.eq-panel .eq-legend{order:3;width:100%;margin:6px 0 0}.eq-panel>.panel-h>.panel-tools{flex-wrap:wrap}}
